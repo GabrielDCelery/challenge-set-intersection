@@ -4,29 +4,29 @@
 
 **Domain Model**
 
-| #   | Question                                    | Decision                                      |
-| --- | ------------------------------------------- | --------------------------------------------- |
-| D1  | Total overlap multiplicity rule?            | `m × n` per shared key, summed               |
-| D2  | Keys as strings or integers?                | Raw strings — leading zeros preserved         |
-| D3  | Which column is the key?                    | `key_columns` in YAML config — required, no default |
+| #   | Question                         | Decision                                            |
+| --- | -------------------------------- | --------------------------------------------------- |
+| D1  | Total overlap multiplicity rule? | `m × n` per shared key, summed                      |
+| D2  | Keys as strings or integers?     | Raw strings — leading zeros preserved               |
+| D3  | Which column is the key?         | `key_columns` in YAML config — required, no default |
 
 **Algorithm**
 
-| #   | Question                                          | Decision                                                   |
-| --- | ------------------------------------------------- | ---------------------------------------------------------- |
-| D4  | Streaming vs bulk load?                           | Stream via `KeyIterator` (`[][]string` batches)            |
-| D5  | Single-pass vs multi-pass?                        | Single-pass per dataset                                    |
-| D8  | Pluggable algorithm?                              | `IntersectionAlgorithm` interface; type and cache orthogonal |
-| D9  | Sequential vs parallel connector streaming?       | Parallel — one goroutine per connector                     |
-| D10 | Frequency map memory for exact algorithms?        | `in_memory` or `spill_to_disk`; n/a for approximate       |
-| D11 | Long-running process control?                     | `run.timeout_seconds`; resume deferred                     |
+| #   | Question                                    | Decision                                                     |
+| --- | ------------------------------------------- | ------------------------------------------------------------ |
+| D4  | Streaming vs bulk load?                     | Stream via `KeyIterator` (`[][]string` batches)              |
+| D5  | Single-pass vs multi-pass?                  | Single-pass per dataset                                      |
+| D8  | Pluggable algorithm?                        | `IntersectionAlgorithm` interface; type and cache orthogonal |
+| D9  | Sequential vs parallel connector streaming? | Parallel — one goroutine per connector                       |
+| D10 | Frequency map memory for exact algorithms?  | `in_memory` or `spill_to_disk`; n/a for approximate          |
+| D11 | Long-running process control?               | `run.timeout_seconds`; resume deferred                       |
 
 **System Boundaries**
 
-| #   | Question                        | Decision                                              |
-| --- | ------------------------------- | ----------------------------------------------------- |
-| D6  | Config mechanism?               | YAML via `--config`; mandatory, no shorthand          |
-| D7  | Output format?                  | `ResultWriter` interface; stdout table by default     |
+| #   | Question          | Decision                                          |
+| --- | ----------------- | ------------------------------------------------- |
+| D6  | Config mechanism? | YAML via `--config`; mandatory, no shorthand      |
+| D7  | Output format?    | `ResultWriter` interface; stdout table by default |
 
 ---
 
@@ -224,12 +224,12 @@ type IntersectionAlgorithm interface {
 
 **Algorithm types:**
 
-| Type                   | Datasets | Accuracy    | Frequency map? | Notes                                        |
-| ---------------------- | -------- | ----------- | -------------- | -------------------------------------------- |
-| `pairwise_exact`       | 2        | Exact       | Yes            | Current implementation                       |
+| Type                   | Datasets | Accuracy    | Frequency map? | Notes                                         |
+| ---------------------- | -------- | ----------- | -------------- | --------------------------------------------- |
+| `pairwise_exact`       | 2        | Exact       | Yes            | Current implementation                        |
 | `pairwise_approximate` | 2        | ~1-2% error | No             | HyperLogLog for distinct, MinHash for overlap |
-| `nway_exact`           | N        | Exact       | Yes            | Required for Venn diagram output             |
-| `nway_approximate`     | N        | ~1-2% error | No             | Deferred                                     |
+| `nway_exact`           | N        | Exact       | Yes            | Required for Venn diagram output              |
+| `nway_approximate`     | N        | ~1-2% error | No             | Deferred                                      |
 
 **Note:** Exact vs approximate is a property of the algorithm type, not a system-level flag. Approximate algorithms do not build frequency maps at all — they use HyperLogLog and MinHash directly. Caching strategy is irrelevant for approximate algorithms and only applies to exact ones.
 
@@ -247,10 +247,10 @@ type IntersectionAlgorithm interface {
 
 **Decision:** Exact algorithm implementations (`pairwise_exact`, `nway_exact`) support a configurable `cache` block controlling where the frequency map lives. Approximate algorithms have no cache block — they never build a frequency map.
 
-| Strategy       | Memory usage                 | Accuracy | When to use                                    |
-| -------------- | ---------------------------- | -------- | ---------------------------------------------- |
-| `in_memory`    | O(distinct keys per dataset) | Exact    | Default — frequency map fits within `max_memory_mb` |
-| `spill_to_disk`| O(batch size) working memory | Exact    | Frequency map exceeds `max_memory_mb`          |
+| Strategy        | Memory usage                 | Accuracy | When to use                                         |
+| --------------- | ---------------------------- | -------- | --------------------------------------------------- |
+| `in_memory`     | O(distinct keys per dataset) | Exact    | Default — frequency map fits within `max_memory_mb` |
+| `spill_to_disk` | O(batch size) working memory | Exact    | Frequency map exceeds `max_memory_mb`               |
 
 **Config for exact algorithm:**
 
@@ -258,9 +258,9 @@ type IntersectionAlgorithm interface {
 algorithm:
   type: pairwise_exact
   cache:
-    strategy: in_memory   # in_memory | spill_to_disk
-    max_memory_mb: 512    # threshold before spill_to_disk kicks in
-    spill_dir: /tmp       # only used when strategy: spill_to_disk
+    strategy: in_memory # in_memory | spill_to_disk
+    max_memory_mb: 512 # threshold before spill_to_disk kicks in
+    spill_dir: /tmp # only used when strategy: spill_to_disk
 ```
 
 **Config for approximate algorithm:**
@@ -268,10 +268,10 @@ algorithm:
 ```yaml
 algorithm:
   type: pairwise_approximate
-  precision: 14   # HyperLogLog precision parameter — range 4-18, higher = more accurate, more memory
-                  # precision 14 ≈ 0.8% error, ~256KB memory regardless of dataset size
-                  # precision 10 ≈ 3.2% error, ~16KB memory
-                  # precision 18 ≈ 0.2% error, ~4MB memory
+  precision: 14 # HyperLogLog precision — range 4–18, higher = more accurate, more memory
+               # error rate ≈ 1.04 / √(2^precision); memory ≈ 2^precision × 8 bytes (verify against axiomhq/hyperloglog)
+               # precision 10 ≈ 3.25% error, ~8KB
+               # precision 18 ≈ 0.20% error, ~2MB
   # no cache block — approximate algorithms do not build frequency maps
 ```
 
@@ -286,85 +286,41 @@ Output always includes error bounds when an approximate algorithm is used — e.
 
 ### Sizing Strategy
 
-Rather than publishing fixed numbers (which would only be valid for one connector type and one hardware profile), the right approach is to measure and calculate based on actual conditions. The following documents what to measure and how to derive the thresholds.
+Rather than fixed thresholds, the right approach is to derive them from actual conditions. Each entry in a `map[string]uint64` costs:
 
-**Step 1 — Measure bytes per frequency map entry**
-
-Each entry in a `map[string]uint64` costs the following:
-
-| Component              | Size     | Explanation                                                                              |
-| ---------------------- | -------- | ---------------------------------------------------------------------------------------- |
-| Go string header       | 16 bytes | Pointer + length field per string, paid per entry regardless of content                  |
-| String data            | L bytes  | Raw key bytes — one byte per ASCII char, includes `\x00` delimiters for composite keys  |
-| uint64 counter value   | 8 bytes  | Frequency count — fixed size regardless of value stored                                  |
-| Go map bucket overhead | ~50%     | Amortised cost of Go's bucket-based hash map internals (overflow pointers, tophash bytes)|
-
-**Formula:**
+| Component              | Size     | Explanation                                                                               |
+| ---------------------- | -------- | ----------------------------------------------------------------------------------------- |
+| Go string header       | 16 bytes | Pointer + length field, paid per entry regardless of content                              |
+| String data            | L bytes  | Raw key bytes — includes `\x00` delimiters for composite keys                             |
+| uint64 counter value   | 8 bytes  | Frequency count — fixed size regardless of value                                          |
+| Go map bucket overhead | ~50%     | Amortised cost of Go's bucket-based hash map internals (overflow pointers, tophash bytes) |
 
 ```
 bytes_per_entry ≈ (16 + L + 8) × 1.5
 ```
 
-**Worked examples:**
+where L = sum of max field lengths for each column in `key_columns` + (number of columns − 1) for `\x00` delimiters. Multiply by distinct key count and divide by 1024² to get MB. Set `max_memory_mb` to ~80% of available RAM to leave headroom for both dataset maps and the Go runtime.
+
+**Strategy decision:**
 
 ```
-Single UDPRN key "30433784" (L=8):
-  (16 + 8 + 8) × 1.5 = 48 bytes per entry
-
-Composite key "30433784\x00alice@example.com" (L=29):
-  (16 + 29 + 8) × 1.5 = 79 bytes per entry
+map_size_mb < available_ram × 0.8                 →  in_memory
+map_size_mb > available_ram × 0.8                 →  spill_to_disk
+spill_to_disk I/O cost unacceptable for use case  →  pairwise_approximate
 ```
 
-**Deriving L from config:**
+The threshold for choosing `pairwise_approximate` over `spill_to_disk` is not a fixed number — it depends on the operator's latency requirements and tolerance for approximation. Benchmark `spill_to_disk` at the target dataset size and compare the wall-clock time against the acceptable run time before switching to approximate.
 
-```
-L = sum of max field lengths for each column in key_columns
-  + (len(key_columns) - 1)   ← one \x00 delimiter between each column
-```
+**Wall-clock time** is dominated by the slowest connector — benchmark each separately:
 
-These are estimates. The actual value should be verified by profiling:
+| Connector   | Primary bottleneck             | What to measure                              |
+| ----------- | ------------------------------ | -------------------------------------------- |
+| CSV (local) | Disk read + CSV parse speed    | Rows/sec at varying file sizes               |
+| REST API    | Network latency + rate limits  | Pages/sec, rows/page, API rate limit ceiling |
+| Database    | Query execution + cursor fetch | Rows/sec at varying `LIMIT` sizes            |
+| SFTP        | Network bandwidth              | Effective MB/sec throughput                  |
 
-```go
-// measure actual map memory usage with runtime.ReadMemStats
-// before and after loading a known number of keys
-```
-
-**Step 2 — Estimate frequency map size**
-
-```
-map_size_bytes = distinct_key_count × bytes_per_entry
-map_size_mb    = map_size_bytes / (1024 × 1024)
-```
-
-Set `max_memory_mb` to ~80% of available RAM to leave headroom for the Go runtime, the second dataset's map, and OS overhead.
-
-**Step 3 — Choose strategy based on map size vs available RAM**
-
-```
-if map_size_mb < available_ram_mb × 0.8  →  in_memory
-if map_size_mb > available_ram_mb × 0.8  →  spill_to_disk
-if distinct_key_count > ~500M            →  pairwise_approximate
-  (spill_to_disk I/O cost exceeds value of exactness)
-```
-
-**Step 4 — Measure wall-clock time per connector type**
-
-Wall-clock time is dominated by different bottlenecks per connector — these must be benchmarked separately:
-
-| Connector      | Primary bottleneck              | What to measure                                      |
-| -------------- | ------------------------------- | ---------------------------------------------------- |
-| CSV (local)    | Disk read + CSV parse speed     | Rows/sec at varying file sizes                       |
-| REST API       | Network latency + rate limits   | Pages/sec, rows/page, API rate limit ceiling         |
-| Database       | Query execution + cursor fetch  | Rows/sec at varying `LIMIT` sizes and index coverage |
-| SFTP           | Network bandwidth + parse speed | Effective MB/sec throughput                          |
-
-For each connector, benchmark at representative dataset sizes (1M, 10M, 100M rows if feasible) and record rows/sec. Then:
-
-```
-estimated_wall_clock = distinct_key_count / rows_per_sec
-```
-
-Add `run.timeout_seconds` with a margin above this estimate (e.g. 2×) to allow for variance without cutting off legitimate runs.
+Set `timeout_seconds` to ~2× the estimated wall-clock time (`distinct_key_count / rows_per_sec`) to allow for variance without cutting off legitimate runs.
 
 **Current implementation:** `in_memory` only. `spill_to_disk` is deferred. Benchmarks have not yet been run — the above is the measurement plan.
 
@@ -384,12 +340,14 @@ run:
 When the timeout is exceeded the program cancels all connector goroutines via a shared context, flushes any partial `ConnectorStats` to stderr, and exits with a non-zero exit code and a clear message indicating timeout.
 
 **Why timeout:**
+
 - Simple to implement — Go's `context.WithTimeout` propagates cancellation to all goroutines cleanly
 - Protects against runaway jobs — a slow or unresponsive remote connector cannot block the process indefinitely
 - Sufficient for the current use case — the provided datasets are small; timeout is a safety valve, not a primary flow
 
 **Why not resume (yet):**
 Resume requires two components working together:
+
 1. The connector must checkpoint its position (byte offset, page cursor, last row ID) after each batch
 2. The algorithm must checkpoint its partial frequency map to disk so already-processed rows do not need to be reprocessed
 
@@ -398,6 +356,7 @@ These are coupled — a connector checkpoint without an algorithm checkpoint mea
 The `KeyIterator` interface is designed to accommodate resume in future — a `Checkpoint() error` and `Resume(checkpoint Checkpoint) error` method pair could be added to the interface without changing the algorithm or writer layers.
 
 **Alternatives considered:**
+
 - No timeout — process hangs indefinitely on a slow or unresponsive source; unacceptable
 - Timeout only — chosen for now; simple, effective for the current scope
 - Resume only — solves a different problem (recovery) without preventing runaway processes; incomplete without timeout
