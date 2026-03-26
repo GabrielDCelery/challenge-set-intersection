@@ -9,6 +9,7 @@
 | D1  | Total overlap multiplicity rule? | `m × n` per shared key, summed                      |
 | D2  | Keys as strings or integers?     | Raw strings — leading zeros preserved               |
 | D3  | Which column is the key?         | `key_columns` in YAML config — required, no default |
+| D12 | Empty key field in a row?        | Soft failure — row skipped, recorded in `ConnectorStats` |
 
 **Algorithm**
 
@@ -361,3 +362,19 @@ The `KeyIterator` interface is designed to accommodate resume in future — a `C
 - Timeout only — chosen for now; simple, effective for the current scope
 - Resume only — solves a different problem (recovery) without preventing runaway processes; incomplete without timeout
 - Both — the right long-term answer; resume deferred until there is a concrete requirement for it
+
+---
+
+## D12: Empty key field handling
+
+**Decision:** A row where one or more `key_columns` fields are empty is a soft failure — the row is skipped and recorded in `ConnectorStats`. Processing continues.
+
+**Context:** An empty field in a key column means the composite key is incomplete. It cannot reliably identify an individual — a blank UDPRN or email is not a valid key. More importantly, multiple rows with the same empty field would produce spurious matches against each other, inflating overlap counts silently.
+
+**Alternatives considered:**
+
+- Hard failure — abort the entire run on the first empty field; too strict for real-world data which commonly has sparse or optional fields
+- Treat empty as a valid key value — would cause blank-field rows to match each other across datasets, producing meaningless overlap counts; ruled out
+- Soft failure — chosen; consistent with the handling of other malformed rows (FR6); caller is informed via `ConnectorStats`
+
+**Why:** Treating an empty key field as a soft failure is consistent with the existing error handling model. The connector is responsible for deciding what constitutes a valid row — an incomplete key is not valid, but it is not a reason to abort the entire run.
