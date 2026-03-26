@@ -2,28 +2,29 @@
 
 ## Functional Requirements
 
-### File Ingestion
+### Data Ingestion
 
-The program must accept two CSV files as input. Each file contains a header row followed by rows of UDPRN keys. The program should not assume a fixed path — file paths must be user-specifiable at runtime. Handling arbitrary CSV files (not just the provided samples) is a stated requirement.
+The program must accept two datasets as input. Each dataset contains a header row followed by rows of key values. The program should not assume a fixed source — in the current implementation datasets are provided as local CSV files, but the ingestion layer must be designed as a pluggable connector so that future sources (REST API, database, SFTP) can be added without changing the algorithm.
 
-- FR1: The user can specify two CSV file paths via command-line arguments (or a config/flag mechanism).
-- FR2: The program reads and parses each CSV file, tolerating a header row.
-- FR3: The program handles CSV files where UDPRN values may appear more than once (duplicates are valid input).
-- FR4: The program reports an error clearly if a file path is invalid or the file cannot be read.
+- FR1: The user can specify two dataset sources via command-line arguments (or a config/flag mechanism).
+- FR2: Each dataset source is consumed via a `KeyIterator` interface that streams one key string at a time. The algorithm has no knowledge of the underlying source.
+- FR3: The CSV connector implements `KeyIterator`, reads the file row by row without loading it fully into memory, and resolves the key string from the configured `--key-columns`.
+- FR4: The program handles datasets where key values may appear more than once (duplicates are valid input).
+- FR5: The program reports an error clearly if a source cannot be opened or a key cannot be read, and exits with a non-zero exit code.
 
 ### Key Statistics
 
 The core output is a set of counts derived from the two datasets. These counts must be computed accurately unless an approximation strategy is explicitly chosen (see NFRs).
 
-- FR5: Report the total count of keys in each file (including duplicates).
-- FR6: Report the count of distinct keys in each file.
-- FR7: Report the total overlap — the maximum possible overlap of keys between files, counting multiplicity from both sides (i.e. for a key appearing m times in file A and n times in file B, it contributes min(m,n) to the total overlap).
-- FR8: Report the distinct overlap — the count of keys that appear in both files (regardless of frequency).
+- FR6: Report the total count of keys in each dataset (including duplicates).
+- FR7: Report the count of distinct keys in each dataset.
+- FR8: Report the total overlap — for a key appearing m times in dataset A and n times in dataset B, it contributes m×n to the total overlap, summed across all shared keys.
+- FR9: Report the distinct overlap — the count of keys that appear in both datasets (regardless of frequency).
 
 ### Output
 
-- FR9: Results are displayed to stdout in a human-readable format.
-- FR10: The output labels each metric clearly so the caller can tell which number corresponds to which statistic.
+- FR10: Results are displayed to stdout in a human-readable format.
+- FR11: The output labels each metric clearly so the caller can tell which number corresponds to which statistic.
 
 ---
 

@@ -9,12 +9,35 @@ Infrastructure-level decisions — separate from domain/algorithm decisions in `
 This is a stateless, single-process CLI tool. There is no server, no database, no message queue, and no network communication. The entire system fits within a single binary invocation that:
 
 1. Reads CLI arguments
-2. Streams two CSV files from local disk
-3. Computes four integer counts in memory
-4. Writes results to stdout
-5. Exits
+2. Constructs two `KeyIterator` connectors from the specified sources
+3. Streams keys from each connector one at a time — no full dataset is ever loaded into memory
+4. Computes four integer counts
+5. Writes results to stdout
+6. Exits
 
 All architecture concerns here are about the internal structure of that process and how it scales with input size.
+
+---
+
+## Connector Layer
+
+The ingestion layer is decoupled from the algorithm via a `KeyIterator` interface:
+
+```go
+type KeyIterator interface {
+    Next() (key string, done bool, err error)
+    Close() error
+}
+```
+
+The algorithm only calls `Next()` and `Close()`. It has no knowledge of whether the underlying source is a local CSV file, a paginated REST API, a database cursor, or an SFTP stream. Each source type is a separate connector that implements this interface.
+
+**Current connector:** `CSVFileConnector` — opens a local CSV file, resolves the key columns from the header row, and yields one composite key string per call to `Next()`.
+
+**Future connectors** (not in scope for this implementation but the interface accommodates them without algorithm changes):
+- `RESTConnector` — paginates through an API endpoint, yielding one key per record
+- `DatabaseConnector` — wraps a database cursor
+- `SFTPConnector` — streams a remote CSV over SFTP
 
 ---
 
@@ -22,15 +45,21 @@ All architecture concerns here are about the internal structure of that process 
 
 ### Streaming vs Bulk Load
 
-**Decision:** TBD
+**Decision:** Stream both datasets via `KeyIterator`. Never load a full dataset into memory.
+
+**Algorithm:**
+1. Stream dataset A via its connector — build a frequency map `map[string]uint64` of key → count
+2. Stream dataset B via its connector — for each key, look it up in the frequency map and accumulate overlap counts
+3. Compute the four metrics from the frequency map and accumulators
+
+Memory usage is O(distinct keys in A). Dataset B is never stored — each key is consumed, looked up, and discarded.
 
 **Alternatives considered:**
 
-- Stream file A row by row into a frequency map, then stream file B row by row and compute overlap on the fly. Memory usage is O(distinct keys in A). Does not require both files to fit in memory simultaneously.
-- Load both files fully into memory as slices, then compute. Simpler code, but doubles memory usage and offers no benefit.
-- External sort-merge: sort both files on disk, then merge. O(1) extra memory, exact results, but requires temp disk space and adds I/O complexity. Only warranted if distinct key count in A does not fit in RAM.
+- Load both datasets fully into memory as slices — simpler code, but makes the solution incompatible with remote sources and large datasets; ruled out
+- External sort-merge — O(1) extra memory, exact results, but requires temp disk space and adds significant I/O complexity; only warranted if distinct key count in A does not fit in RAM; deferred
 
-**Why:** The streaming approach (file A into map, file B streamed) is the best default — it is exact, memory-efficient relative to bulk load, and requires only one pass per file.
+**Why:** Streaming is the only approach compatible with the connector abstraction. A remote source (API, database, SFTP) cannot be bulk-loaded — it can only be iterated. Designing for streaming from the start means the algorithm works identically regardless of source.
 
 ---
 

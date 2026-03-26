@@ -14,9 +14,9 @@
 
 | #   | Question                                                             | Decision |
 | --- | -------------------------------------------------------------------- | -------- |
-| D4  | In-memory hash map vs streaming/external approach for large files?   | TBD      |
+| D4  | In-memory hash map vs streaming/external approach for large files?   | Streaming via `KeyIterator` interface — never bulk load |
 | D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | TBD      |
-| D6  | Single-pass vs multi-pass over the files?                            | TBD      |
+| D6  | Single-pass vs multi-pass over the files?                            | Single-pass per dataset |
 
 **System Boundaries**
 
@@ -100,19 +100,19 @@ m + n:       (1+1) + (1+2) + (2+1) + (2+3) = 2 + 3 + 3 + 5 = 13
 
 ---
 
-## D4: In-memory hash map vs streaming approach
+## D4: Streaming via KeyIterator
 
-**Decision:** TBD
+**Decision:** Both datasets are consumed via a `KeyIterator` interface — one key at a time, never bulk loaded into memory.
 
-**Context:** The simplest correct implementation loads one file's keys into a hash map and streams the second file for comparison. For very large files (hundreds of millions of rows), RAM becomes a constraint.
+**Context:** The ingestion layer must support sources beyond local files (REST API, database, SFTP). Bulk loading is incompatible with remote sources that can only be iterated, and with datasets that exceed available RAM.
 
 **Alternatives considered:**
 
-- In-memory hash map (hash set for distinct, frequency map for total overlap): O(n) memory on the smaller file. Fast, simple, exact. Feasible if the distinct key count fits in memory.
-- Sort-merge join on disk: sort both files externally, then merge. O(1) extra memory beyond sort buffers, exact counts. Slower due to I/O.
-- Probabilistic structures (HyperLogLog for cardinality, MinHash for overlap): sub-linear memory, approximate results. The spec permits this if accuracy is declared.
+- Bulk load both datasets into memory — incompatible with remote connectors and large datasets; ruled out
+- Stream dataset A into a frequency map, stream dataset B for comparison — chosen; O(distinct keys in A) memory, single pass per dataset, works with any connector
+- Sort-merge join on disk — O(1) extra memory, exact, but requires temp disk space and significant complexity; deferred unless in-memory approach proves insufficient
 
-**Why:** TBD — gated on OQ1 (file size) and the accuracy requirements.
+**Why:** Streaming is the only design compatible with the connector abstraction. The algorithm is identical regardless of whether the source is a local CSV, a paginated API, or a database cursor.
 
 ---
 
@@ -132,18 +132,18 @@ m + n:       (1+1) + (1+2) + (2+1) + (2+3) = 2 + 3 + 3 + 5 = 13
 
 ---
 
-## D6: Single-pass vs multi-pass
+## D6: Single-pass per dataset
 
-**Decision:** TBD
+**Decision:** One pass per dataset — stream dataset A into a frequency map, then stream dataset B once to compute all four metrics.
 
-**Context:** Total key count and total overlap both require knowing frequencies. Distinct count and distinct overlap require only presence.
+**Context:** Total key count and total overlap both require knowing frequencies. Distinct count and distinct overlap require only presence. All four can be derived from a single frequency map pass per dataset.
 
 **Alternatives considered:**
 
-- Single pass with a frequency map: records count per key for both files, then computes all four metrics in one pass per file. Most efficient.
-- Two passes per file (one for total count, one for distinct): simpler logic per pass but reads each file twice — wasteful for large files.
+- Two passes per dataset (one for total count, one for distinct) — reads each source twice; wasteful for large files and incompatible with non-seekable remote sources
+- Single pass with frequency map — chosen; collects all information needed in one pass per dataset
 
-**Why:** Single pass is preferred — collect a frequency map on the first file, stream the second file once.
+**Why:** Non-seekable remote sources (API streams, database cursors) cannot be rewound. A single-pass design is required for the connector abstraction to work correctly across all source types.
 
 ---
 
