@@ -1,22 +1,20 @@
 # Architecture
 
-Infrastructure-level decisions — separate from domain/algorithm decisions in `02-decisions.md`. Informed by data consumers and entities.
+Infrastructure-level decisions — separate from domain/algorithm decisions in `02-decisions.md`. See `04-entities.md` for interface and struct definitions.
 
 ---
 
 ## System Shape
 
-This is a stateless, single-process CLI tool. There is no server, no database, no message queue, and no network communication. The entire system fits within a single binary invocation that:
+A stateless, single-process CLI tool. The entire system fits within a single binary invocation:
 
-1. Reads YAML config
-2. Constructs N `KeyIterator` connectors from the specified sources
-3. Constructs an `IntersectionAlgorithm` from the configured algorithm type
-4. Constructs a `ResultWriter` from the configured output destination (default: stdout)
-5. Passes the connectors to the algorithm — the algorithm owns streaming, memory, and computation
-6. Passes the `IntersectionResult` to the `ResultWriter`
-7. Exits
-
-The three layers are fully decoupled:
+1. Read YAML config
+2. Construct N `KeyIterator` connectors from the configured sources
+3. Construct an `IntersectionAlgorithm` from the configured algorithm type
+4. Construct a `ResultWriter` from the configured output destination
+5. Pass connectors to the algorithm — it owns streaming, memory, and computation
+6. Pass the `IntersectionResult` to the `ResultWriter`
+7. Exit
 
 ```
 KeyIterator(s)  →  IntersectionAlgorithm  →  ResultWriter
@@ -24,180 +22,62 @@ KeyIterator(s)  →  IntersectionAlgorithm  →  ResultWriter
                       memory strategy)
 ```
 
-Each layer knows nothing about the others. Connectors, algorithms, and writers can be swapped independently via config.
+Each layer knows nothing about the others. Connectors, algorithms, and writers are swapped independently via config.
 
 ---
 
-## Connector Layer
+## Data Flow
 
-The ingestion layer is decoupled from the algorithm via a `KeyIterator` interface:
-
-```go
-type KeyIterator interface {
-    NextBatch() (keys [][]string, done bool, err error)
-    Close() error
-}
-```
-
-Each call to `NextBatch()` returns a batch of rows. Each row is a `[]string` — one element per configured key column, in the order specified by `key_columns`. The algorithm has no knowledge of the underlying source format (CSV, JSON, database row) or the separator used between fields. The connector is responsible for extracting the correct fields and returning them in the correct order.
-
-**Example:** with `key_columns: ["udprn", "email"]`, a batch might look like:
+Each connector runs in its own goroutine, streaming batches into a dedicated frequency map. The algorithm waits for all goroutines to complete, then computes the four metrics by comparing the maps.
 
 ```
-[
-  ["30433784", "alice@example.com"],
-  ["71842328", "bob@example.com"],
-]
+goroutine 1: connector A → frequency map A ─┐
+goroutine 2: connector B → frequency map B ─┤→ compare maps → IntersectionResult → ResultWriter
+     (both complete via sync.WaitGroup)     ┘
 ```
 
-A CSV connector and a JSON connector receiving the same data return identical output — the algorithm sees no difference.
+Cancellation propagates via a shared `context.Context` — if any goroutine exceeds `max_error_rate`, encounters a fatal error, or the timeout fires, all other goroutines stop cleanly. Partial `ConnectorStats` are flushed to stderr on exit.
 
-**Frequency map key:** the algorithm joins the `[]string` slice with a null byte (`\x00`) to form a map key — e.g. `"30433784\x00alice@example.com"`. The null byte cannot appear in any real key value, eliminating collision risk. The join happens in one place inside the algorithm, not in the connector.
+This design extends naturally to N datasets — fan out to N goroutines, wait for all, compute intersections from N maps.
 
-**Batching:** batch size is a connector implementation detail. A local CSV connector may return rows as fast as it can parse them. A REST connector returns one page per batch. The algorithm loops over whatever size batch it receives.
-
-**Interface:**
-
-```go
-type RowError struct {
-    RowNumber uint64
-    Reason    string
-}
-
-type ConnectorStats struct {
-    RowsRead    uint64
-    RowsSkipped uint64
-    Errors      []RowError
-}
-
-type KeyIterator interface {
-    NextBatch() (keys [][]string, done bool, err error)
-    Stats()     ConnectorStats
-    Close()     error
-}
-```
-
-`Stats()` can be called after each batch. The algorithm checks the error rate after every batch and aborts if it exceeds the configured `max_error_rate` threshold. `Close()` returns only an error so `defer connector.Close()` works as normal.
-
-**Current connector:** `CSVFileConnector` — opens a local CSV file, reads the header row to resolve `key_columns` to column indices, returns batches of `[][]string`, skips malformed rows and records them in `Stats()`.
-
-**Future connectors** (not in scope for this implementation but the interface accommodates them without algorithm changes):
-- `JSONConnector` — reads a JSON array or newline-delimited JSON, extracting configured fields per record
-- `RESTConnector` — paginates through an API endpoint, one page per batch
-- `DatabaseConnector` — wraps a database cursor, returning rows in batches
-- `SFTPConnector` — streams a remote file over SFTP, delegating to the appropriate file format connector
-
----
-
-## I/O Strategy
-
-### Streaming vs Bulk Load
-
-**Decision:** Stream all datasets via `KeyIterator` in parallel — one goroutine per connector. Never load a full dataset into memory.
-
-**Algorithm (PairwiseAlgorithm):**
-1. Launch one goroutine per connector — each streams its dataset independently and builds its own frequency map concurrently
-2. Wait for all goroutines to complete
-3. Compute the four metrics by comparing the completed frequency maps
-4. Check `ConnectorStats` error rates — abort if any connector exceeded `max_error_rate`
-
-Memory usage is O(distinct keys across all datasets). No dataset is stored as raw rows — each row is consumed, joined with `\x00`, inserted into the frequency map, and discarded.
-
-**Why parallel:** connectors are fully independent — a CSV file read and a REST API paginated fetch share no state. Streaming them sequentially wastes wall-clock time for no benefit. Parallelism is natural in Go via goroutines and is the algorithm's responsibility to manage — the connector interface does not change.
-
-**Alternatives considered:**
-
-- Sequential streaming — simpler but wastes time; a slow remote connector blocks all subsequent connectors; ruled out
-- Load both datasets fully into memory as slices — incompatible with remote sources and large datasets; ruled out
-- External sort-merge — O(1) extra memory, exact results, but requires temp disk space and significant I/O complexity; deferred
-
----
-
-### Concurrent Streaming Design
-
-Each connector runs in its own goroutine, streaming batches into a dedicated frequency map. The algorithm waits for all goroutines via a `sync.WaitGroup` or equivalent, collecting errors via a channel. If any goroutine exceeds `max_error_rate` or encounters a fatal error it signals cancellation via a shared context — all other goroutines stop cleanly.
-
-```
-goroutine 1: connector A → frequency map A
-goroutine 2: connector B → frequency map B
-     ↓ (both complete)
-main: compare maps → IntersectionResult → ResultWriter
-```
-
-This design extends naturally to N datasets — fan out to N goroutines, wait for all, then compute intersections from N maps.
+**Why parallel:** connectors are fully independent. Streaming sequentially wastes wall-clock time — a slow remote connector would block all subsequent ones. Parallelism is the algorithm's responsibility; the `KeyIterator` interface does not change (D9).
 
 ---
 
 ## Scalability
 
-### Read/Write Split
+### Memory
 
-There are no writes in this system. All operations are concurrent reads followed by in-memory computation.
+Memory usage is O(distinct keys across all datasets). Raw rows are never stored — each row is consumed, joined into a frequency map key, and discarded.
 
-- **Reads:** N concurrent connector streams. No random access required. Throughput per connector is bounded by its source speed (disk, network, database cursor).
-- **Writes:** One write to the configured output destination at the end. Negligible.
+| Scenario                                        | Memory required                           | Approach                  |
+| ----------------------------------------------- | ----------------------------------------- | ------------------------- |
+| Small datasets (< 1M distinct keys)             | < ~50MB per frequency map                 | `in_memory`               |
+| Medium datasets (1M–50M distinct keys)          | ~500MB–5GB per map depending on key width | `in_memory` if RAM allows |
+| Very large datasets (> 50M distinct keys)       | Exceeds typical RAM                       | `spill_to_disk`           |
+| Extreme scale or approximate results acceptable | Kilobytes regardless of cardinality       | `pairwise_approximate`    |
 
-### Memory Scaling
-
-| Scenario                                      | Memory required                          | Approach                        |
-| --------------------------------------------- | ---------------------------------------- | ------------------------------- |
-| Small datasets (< 1M rows, < 500K keys each)  | < ~50MB per frequency map                | In-memory frequency maps        |
-| Medium datasets (1M–50M rows)                 | ~500MB–5GB per map depending on key width| In-memory if RAM allows         |
-| Very large datasets (> 50M distinct keys)     | Exceeds typical RAM                      | Algorithm caching strategy (D9) |
+Exact algorithms build frequency maps — the `cache` config controls where they live (`in_memory` or `spill_to_disk`). Approximate algorithms use HyperLogLog and MinHash directly — no frequency map, no cache config applies. See D8, D10.
 
 ### Known Hotspots
 
-- **Concurrent map writes:** each goroutine writes to its own dedicated frequency map — no shared state, no locking required during the streaming phase.
-- **Hash map insertion:** O(n) time and memory per dataset. For very high cardinality this is the dominant cost.
-- **Key join:** `strings.Join(row, "\x00")` on every row — cheap but worth noting for very high throughput scenarios.
-- **CSV parsing:** naive line-by-line string splitting is slower than a proper CSV parser that handles quoting. For large files, parser choice matters.
+- **Concurrent map writes:** each goroutine writes to its own frequency map — no shared state, no locking during the streaming phase.
+- **Hash map insertion:** O(n) time and memory per dataset. Dominant cost at high cardinality.
+- **Key join:** `strings.Join(row, "\x00")` on every row — cheap but worth profiling at high throughput.
+- **CSV parsing:** parser choice matters for large files — `encoding/csv` handles quoting and CRLF correctly and is faster than naive string splitting.
 
-### Algorithm Caching Strategy
+### Open
 
-Algorithm type and caching strategy are orthogonal (see D9 and D11 in `02-decisions.md`):
-
-- **Exact algorithms** (`pairwise_exact`, `nway_exact`) build frequency maps. The `cache` config block controls where those maps live — `in_memory` (default) or `spill_to_disk` when RAM is exceeded.
-- **Approximate algorithms** (`pairwise_approximate`, `nway_approximate`) use HyperLogLog and MinHash directly — no frequency map is built, no cache config applies.
-
-The connector and writer layers are unaware of which algorithm type or caching strategy is active.
-
-### What Is Not Addressed Yet
-
-- Acceptable wall-clock runtime (OQ1)
-- Whether `spill_to_disk` or `probabilistic` strategies are needed in practice — depends on max distinct key count vs available RAM (OQ1, OQ6)
-
----
-
-## Writer Layer
-
-The output layer is decoupled from the algorithm via a `ResultWriter` interface:
-
-```go
-type ResultWriter interface {
-    Write(result IntersectionResult) error
-    Close() error
-}
-```
-
-The algorithm calls `Write()` once with the computed `IntersectionResult`. The writer decides how to format and deliver it. The output destination is selected at construction time via the `--output` flag.
-
-**Current writer:** `StdoutWriter` — formats the result as a human-readable table and writes to stdout.
-
-**Future writers** (not in scope for this implementation but the interface accommodates them without algorithm changes):
-- `JSONFileWriter` — serialises the result as JSON to a file
-- `RESTWriter` — POSTs the result to an API endpoint
-- `DatabaseWriter` — inserts the result into a database table
-
----
-
-## Auth
-
-This is a local CLI tool. There is no authentication or authorisation concern — the tool has access to whatever files the OS user running it has permission to read. No credentials, tokens, or roles.
+- Max expected distinct key count and acceptable wall-clock time are not yet known (OQ1). These determine whether `in_memory`, `spill_to_disk`, or `pairwise_approximate` is appropriate in practice. See D10 for the sizing and measurement strategy.
 
 ---
 
 ## Privacy Boundary
 
-Although this tool processes data that originated as PII (delivery addresses), the input files contain only anonymised UDPRN keys — not names, addresses, or any other identifiable information. The tool never logs, stores, or transmits individual key values. Output contains only aggregate counts. This is consistent with InfoSum's stated platform guarantee of never revealing identifiable information.
+The input files contain only anonymised UDPRN keys — not names, addresses, or any other identifiable information. The tool never logs, stores, or transmits individual key values. Output contains only aggregate counts. See `08-security.md` for the full data classification.
 
-See `08-security.md` for the full data classification.
+---
+
+## Auth
+
+This is a local CLI tool. No authentication or authorisation concern — the tool has access to whatever files the OS user running it has permission to read.
