@@ -53,6 +53,24 @@ Represents the computed statistics from comparing two Datasets. This is the outp
 
 ---
 
+## IntersectionAlgorithm
+
+The interface the computation layer implements. Accepts N connectors and returns an `IntersectionResult`. Owns all decisions about memory strategy, parallelism, and accuracy — none of these concerns leak into the connector or writer layers.
+
+```go
+type IntersectionAlgorithm interface {
+    Compute(datasets []KeyIterator) (IntersectionResult, error)
+}
+```
+
+**Current implementation:** `PairwiseAlgorithm` — requires exactly two datasets, exact counts, frequency map held in memory.
+
+**Future implementations:**
+- `NWayAlgorithm` — N datasets, all pairwise and multi-way region breakdowns
+- `ApproximateAlgorithm` — probabilistic counts via HyperLogLog/MinHash for very large datasets
+
+---
+
 ## ConnectorStats
 
 Accumulated statistics from a single connector run. Populated by the connector during iteration and readable at any point via `Stats()`. The algorithm checks this after each batch to enforce the `max_error_rate` threshold.

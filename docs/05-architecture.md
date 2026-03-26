@@ -8,15 +8,23 @@ Infrastructure-level decisions — separate from domain/algorithm decisions in `
 
 This is a stateless, single-process CLI tool. There is no server, no database, no message queue, and no network communication. The entire system fits within a single binary invocation that:
 
-1. Reads CLI arguments
-2. Constructs two `KeyIterator` connectors from the specified sources
-3. Constructs a `ResultWriter` from the specified output destination (default: stdout)
-4. Streams keys from each connector in batches — no full dataset is ever loaded into memory
-5. Computes four integer counts
+1. Reads YAML config
+2. Constructs N `KeyIterator` connectors from the specified sources
+3. Constructs an `IntersectionAlgorithm` from the configured algorithm type
+4. Constructs a `ResultWriter` from the configured output destination (default: stdout)
+5. Passes the connectors to the algorithm — the algorithm owns streaming, memory, and computation
 6. Passes the `IntersectionResult` to the `ResultWriter`
 7. Exits
 
-All architecture concerns here are about the internal structure of that process and how it scales with input size.
+The three layers are fully decoupled:
+
+```
+KeyIterator(s)  →  IntersectionAlgorithm  →  ResultWriter
+  (source)           (computation,             (sink)
+                      memory strategy)
+```
+
+Each layer knows nothing about the others. Connectors, algorithms, and writers can be swapped independently via config.
 
 ---
 

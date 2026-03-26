@@ -15,8 +15,9 @@
 | #   | Question                                                             | Decision |
 | --- | -------------------------------------------------------------------- | -------- |
 | D4  | In-memory hash map vs streaming/external approach for large files?   | Streaming via `KeyIterator` returning `[][]string` batches — never bulk load |
-| D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | TBD      |
+| D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | TBD — algorithm implementation detail, resolved per `IntersectionAlgorithm` type |
 | D6  | Single-pass vs multi-pass over the files?                            | Single-pass per dataset |
+| D9  | Should the intersection algorithm be pluggable?                      | Yes — `IntersectionAlgorithm` interface, implementations swapped via config |
 
 **System Boundaries**
 
@@ -177,6 +178,9 @@ datasets:
 
 key_columns: [udprn, email]
 
+algorithm:
+  type: pairwise
+
 output:
   writer: stdout
 ```
@@ -213,3 +217,31 @@ Internally the shorthand constructs an equivalent CSV config — it is a conveni
 - Both via flag — handled naturally by the `ResultWriter` interface; no special casing needed
 
 **Why:** Same reasoning as `KeyIterator` — the algorithm should have no opinion about where results go. A `ResultWriter` keeps that concern isolated in a single swappable component.
+
+---
+
+## D9: Pluggable IntersectionAlgorithm
+
+**Decision:** The intersection computation is abstracted behind an `IntersectionAlgorithm` interface. The implementation is selected via the `algorithm.type` field in the YAML config.
+
+```go
+type IntersectionAlgorithm interface {
+    Compute(datasets []KeyIterator) (IntersectionResult, error)
+}
+```
+
+**Current implementation:** `PairwiseAlgorithm` — accepts exactly two datasets, builds frequency maps, computes the four metrics.
+
+**Future implementations** (not in scope for this iteration but the interface accommodates them):
+- `NWayAlgorithm` — computes all pairwise and multi-way region breakdowns for N datasets; required for Venn diagram output
+- `ApproximateAlgorithm` — uses HyperLogLog for distinct counts and MinHash for overlap estimation; suited for very large datasets where exact counts are not feasible
+
+**Why D5 is now an implementation detail:** exact vs approximate counting is no longer a system-level decision — it is a property of whichever algorithm implementation is selected. The `PairwiseAlgorithm` is exact. An `ApproximateAlgorithm` would be probabilistic. The rest of the system does not change.
+
+**Alternatives considered:**
+
+- Hardcode the pairwise algorithm — simple for the current spec but forces code changes to support N-way comparison or approximation; ruled out
+- Flag-controlled approximation mode — adds conditional logic throughout the algorithm rather than isolating it in a separate implementation; ruled out
+- Pluggable interface — chosen; each algorithm implementation owns its own memory strategy, parallelism, and accuracy tradeoffs
+
+**Why:** The three-layer architecture (`KeyIterator → IntersectionAlgorithm → ResultWriter`) gives each layer a single, well-defined responsibility. The algorithm layer owns all computation concerns — memory, parallelism, accuracy — without any of those concerns leaking into the connector or writer layers.
