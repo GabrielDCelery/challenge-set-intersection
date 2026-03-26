@@ -6,7 +6,7 @@
 
 The program must accept two datasets as input. Each dataset contains a header row followed by rows of key values. The program should not assume a fixed source — in the current implementation datasets are provided as local CSV files, but the ingestion layer must be designed as a pluggable connector so that future sources (REST API, database, SFTP) can be added without changing the algorithm.
 
-- FR1: The user can specify two dataset sources via command-line arguments (or a config/flag mechanism).
+- FR1: Dataset sources, key columns, and output destination are specified via a YAML config file passed with `--config`. A shorthand positional form (`program --key-columns udprn A_f.csv B_f.csv`) is supported as a convenience for two local CSV files and constructs an equivalent config internally.
 - FR2: Each dataset source is consumed via a `KeyIterator` interface that streams batches of `[][]string` — one inner slice per row, one element per configured key column. The algorithm has no knowledge of the underlying source format.
 - FR3: The CSV connector implements `KeyIterator`, reads the file row by row without loading it fully into memory, and resolves the configured `--key-columns` to column indices from the header row.
 - FR4: The program handles datasets where key values may appear more than once (duplicates are valid input).

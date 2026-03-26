@@ -22,7 +22,7 @@
 
 | #   | Question                                                   | Decision |
 | --- | ---------------------------------------------------------- | -------- |
-| D7  | CLI argument parsing — positional args vs flags?           | TBD      |
+| D7  | CLI argument parsing — positional args vs flags?           | YAML config file via `--config`, with shorthand positional args for CSV convenience |
 | D8  | Output format — plain text table vs structured (JSON/CSV)? | `ResultWriter` interface — stdout table by default, pluggable |
 
 ---
@@ -156,16 +156,44 @@ Each inner `[]string` is one row's key field values, one element per configured 
 
 ---
 
-## D7: CLI argument parsing
+## D7: Configuration via YAML config file
 
-**Decision:** TBD
+**Decision:** Dataset sources, key columns, and output destination are specified via a YAML config file passed with `--config`. A shorthand positional form is also supported for the common case of two local CSV files.
+
+**Full config form:**
+
+```yaml
+datasets:
+  - connector: csv
+    path: data/A_f.csv
+    page_size: 1000
+  - connector: rest
+    url: https://api.example.com/records
+    auth_header: Authorization
+    auth_token: Bearer xyz
+    page_size: 1000
+
+key_columns: [udprn, email]
+
+output:
+  writer: stdout
+```
+
+**Shorthand form (CSV only):**
+
+```sh
+program --key-columns udprn A_f.csv B_f.csv
+```
+
+Internally the shorthand constructs an equivalent CSV config — it is a convenience wrapper, not a separate code path.
 
 **Alternatives considered:**
 
-- Positional arguments: `program fileA.csv fileB.csv` — simple, no flag parsing needed
-- Named flags: `program --file-a A_f.csv --file-b B_f.csv` — self-documenting, easier to extend with `--key-column` later
+- Positional arguments only — works for CSV file paths but cannot express connector type, auth, pagination config, or output destination without an explosion of flags
+- Named flags only (`--file-a`, `--file-b`, `--key-columns`, `--output`) — manageable for CSV but does not scale to REST or database connectors which need arbitrarily many parameters
+- YAML config file — scales to any connector type and keeps all configuration in one place; chosen
 
-**Why:** TBD.
+**Why:** Different connectors have fundamentally different configuration shapes. A flag-based interface cannot accommodate this without becoming unwieldy. A config file makes each connector's parameters explicit and self-documenting, and mirrors how real data pipeline tools are configured.
 
 ---
 
