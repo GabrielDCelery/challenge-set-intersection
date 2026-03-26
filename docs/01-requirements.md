@@ -7,8 +7,8 @@
 The program must accept two datasets as input. Each dataset contains a header row followed by rows of key values. The program should not assume a fixed source — in the current implementation datasets are provided as local CSV files, but the ingestion layer must be designed as a pluggable connector so that future sources (REST API, database, SFTP) can be added without changing the algorithm.
 
 - FR1: The user can specify two dataset sources via command-line arguments (or a config/flag mechanism).
-- FR2: Each dataset source is consumed via a `KeyIterator` interface that streams one key string at a time. The algorithm has no knowledge of the underlying source.
-- FR3: The CSV connector implements `KeyIterator`, reads the file row by row without loading it fully into memory, and resolves the key string from the configured `--key-columns`.
+- FR2: Each dataset source is consumed via a `KeyIterator` interface that streams batches of `[][]string` — one inner slice per row, one element per configured key column. The algorithm has no knowledge of the underlying source format.
+- FR3: The CSV connector implements `KeyIterator`, reads the file row by row without loading it fully into memory, and resolves the configured `--key-columns` to column indices from the header row.
 - FR4: The program handles datasets where key values may appear more than once (duplicates are valid input).
 - FR5: The program reports an error clearly if a source cannot be opened or a key cannot be read, and exits with a non-zero exit code.
 
@@ -34,12 +34,12 @@ The core output is a set of counts derived from the two datasets. These counts m
 
 - How large can the input files be? The instructions call out scalability "in terms of number of rows" and "number of unique key values" — what is the upper bound? (e.g. millions of rows, tens of millions of distinct keys?)
 - What is the acceptable wall-clock time for a single run at maximum file size? (e.g. under 10 seconds, under 1 minute?)
-- Is streaming/constant-memory processing required, or is loading the full key set into memory acceptable?
+- **Resolved:** Streaming is required. Datasets are consumed via `KeyIterator` in batches and never fully loaded into memory. Memory usage is O(distinct keys in dataset A).
 
 ### Scalability
 
-- Must the program support files that do not fit in RAM? If so, an external-sort or streaming HyperLogLog approach is needed rather than in-memory hash sets.
-- Must it support more than two files in a future iteration? The current spec says two — confirm whether extensibility to N files is in scope.
+- **Resolved:** The program streams both datasets — it is not constrained by RAM on the input side. The frequency map for dataset A grows with distinct key count; if this exceeds available RAM, an external sort-merge approach would be needed (deferred).
+- Must it support more than two datasets in a future iteration? The current spec says two — confirm whether extensibility to N datasets is in scope.
 
 ### Availability
 
@@ -64,9 +64,9 @@ The core output is a set of counts derived from the two datasets. These counts m
 
 ## Open Questions
 
-- OQ1: What is the maximum expected file size (rows and distinct key count)? This determines whether an in-memory hash set approach is viable or whether streaming/approximation is required.
+- OQ1: ~~What is the maximum expected file size?~~ **Resolved** — streaming approach adopted; not constrained by file size on the input side.
 - OQ2: UDPRN is defined as an 8-digit numeric string — should leading zeros be preserved (i.e. is "08034283" distinct from "8034283")? The sample data includes leading zeros.
 - OQ3: Are there any other key types beyond UDPRN that the program must support in this iteration, or is UDPRN the sole key type?
 - OQ4: Is the output format fixed (stdout only), or is writing results to a file also required?
-- OQ5: Should the program handle CSV files with multiple columns, or can it assume a single-column CSV of keys?
-- OQ6: What is the target runtime environment — local developer machine, CI pipeline, or a server? This affects memory assumptions.
+- OQ5: ~~Should the program handle CSV files with multiple columns?~~ **Resolved** — multi-column support required; key columns specified via `--key-columns` flag.
+- OQ6: ~~What is the target runtime environment?~~ **Resolved** — streaming approach means memory assumptions are not environment-dependent.
