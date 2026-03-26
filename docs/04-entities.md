@@ -16,7 +16,7 @@ The input boundary. Each dataset source implements this interface. The algorithm
 
 ```go
 type KeyIterator interface {
-    NextBatch() (keys [][]string, done bool, err error)
+    NextBatch(ctx context.Context) (keys [][]string, done bool, err error)
     Stats() ConnectorStats
     Close() error
 }
@@ -40,7 +40,7 @@ The computation boundary. Accepts N `KeyIterator` instances and returns an `Inte
 
 ```go
 type IntersectionAlgorithm interface {
-    Compute(datasets []KeyIterator) (IntersectionResult, error)
+    Compute(ctx context.Context, datasets []KeyIterator) (IntersectionResult, error)
 }
 ```
 
