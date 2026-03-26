@@ -10,10 +10,11 @@ This is a stateless, single-process CLI tool. There is no server, no database, n
 
 1. Reads CLI arguments
 2. Constructs two `KeyIterator` connectors from the specified sources
-3. Streams keys from each connector in batches — no full dataset is ever loaded into memory
-4. Computes four integer counts
-5. Writes results to stdout
-6. Exits
+3. Constructs a `ResultWriter` from the specified output destination (default: stdout)
+4. Streams keys from each connector in batches — no full dataset is ever loaded into memory
+5. Computes four integer counts
+6. Passes the `IntersectionResult` to the `ResultWriter`
+7. Exits
 
 All architecture concerns here are about the internal structure of that process and how it scales with input size.
 
@@ -109,6 +110,28 @@ The following cannot be sized without answers to the open questions in `01-requi
 - Acceptable wall-clock runtime (OQ1)
 - Whether external-sort or HyperLogLog is needed (depends on max distinct key count vs available RAM)
 - Whether parallelism (concurrent file reads) is worth the implementation complexity
+
+---
+
+## Writer Layer
+
+The output layer is decoupled from the algorithm via a `ResultWriter` interface:
+
+```go
+type ResultWriter interface {
+    Write(result IntersectionResult) error
+    Close() error
+}
+```
+
+The algorithm calls `Write()` once with the computed `IntersectionResult`. The writer decides how to format and deliver it. The output destination is selected at construction time via the `--output` flag.
+
+**Current writer:** `StdoutWriter` — formats the result as a human-readable table and writes to stdout.
+
+**Future writers** (not in scope for this implementation but the interface accommodates them without algorithm changes):
+- `JSONFileWriter` — serialises the result as JSON to a file
+- `RESTWriter` — POSTs the result to an API endpoint
+- `DatabaseWriter` — inserts the result into a database table
 
 ---
 

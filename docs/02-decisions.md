@@ -23,7 +23,7 @@
 | #   | Question                                                   | Decision |
 | --- | ---------------------------------------------------------- | -------- |
 | D7  | CLI argument parsing — positional args vs flags?           | TBD      |
-| D8  | Output format — plain text table vs structured (JSON/CSV)? | TBD      |
+| D8  | Output format — plain text table vs structured (JSON/CSV)? | `ResultWriter` interface — stdout table by default, pluggable |
 
 ---
 
@@ -169,14 +169,17 @@ Each inner `[]string` is one row's key field values, one element per configured 
 
 ---
 
-## D8: Output format
+## D8: Output via ResultWriter interface
 
-**Decision:** TBD
+**Decision:** Results are written via a `ResultWriter` interface. The default writer formats output as a human-readable table to stdout. The output destination is configurable via `--output`.
+
+**Context:** Mirroring the `KeyIterator` connector pattern on the input side, the output side should be equally pluggable. Hardcoding stdout couples the algorithm to a single output destination and makes it impossible to write results to a file, database, or API without changing the algorithm.
 
 **Alternatives considered:**
 
-- Plain text table: human-readable, matches the "display" framing in the spec
-- JSON: machine-readable, useful if output is piped to another tool
-- Both (flag-controlled): flexible but adds complexity
+- Hardcode stdout — simple but not extensible; rules out file, API, and database output without algorithm changes
+- Plain text table to stdout (default writer) — human-readable, matches the "display" framing in the spec; chosen as the default
+- JSON writer — machine-readable, useful for piping to other tools or storing results; available as a future writer implementation
+- Both via flag — handled naturally by the `ResultWriter` interface; no special casing needed
 
-**Why:** TBD — the spec says "display", implying human-readable is the primary target.
+**Why:** Same reasoning as `KeyIterator` — the algorithm should have no opinion about where results go. A `ResultWriter` keeps that concern isolated in a single swappable component.

@@ -23,8 +23,10 @@ The core output is a set of counts derived from the two datasets. These counts m
 
 ### Output
 
-- FR10: Results are displayed to stdout in a human-readable format.
-- FR11: The output labels each metric clearly so the caller can tell which number corresponds to which statistic.
+- FR10: Results are written via a `ResultWriter` interface — the algorithm has no knowledge of the output destination.
+- FR11: The stdout writer formats results as a human-readable table with clearly labelled metrics.
+- FR12: The output destination is configurable at runtime via an `--output` flag (default: stdout).
+- FR13: The output labels each metric clearly so the caller can tell which number corresponds to which statistic.
 
 ---
 
@@ -70,6 +72,6 @@ The core output is a set of counts derived from the two datasets. These counts m
 - OQ1: What is the maximum expected distinct key count in a single dataset? This determines whether the in-memory frequency map is viable or whether an external sort-merge / HyperLogLog approach is needed.
 - OQ2: UDPRN is defined as an 8-digit numeric string — should leading zeros be preserved (i.e. is "08034283" distinct from "8034283")? The sample data includes leading zeros.
 - OQ3: ~~Are there any other key types beyond UDPRN?~~ **Resolved** — the program supports any key type via `--key-columns`; the algorithm treats all keys as opaque strings regardless of their source or meaning.
-- OQ4: Is the output format fixed (stdout only), or is writing results to a file also required?
+- OQ4: ~~Is the output format fixed (stdout only)?~~ **Resolved** — output is abstracted behind a `ResultWriter` interface; stdout is the default writer, additional writers (file, JSON, API) can be added without algorithm changes.
 - OQ5: ~~Should the program handle CSV files with multiple columns?~~ **Resolved** — multi-column support required; key columns specified via `--key-columns` flag.
 - OQ6: What is the target runtime environment and available RAM? This determines the practical ceiling for the in-memory frequency map.
