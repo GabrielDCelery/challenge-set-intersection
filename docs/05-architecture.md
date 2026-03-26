@@ -154,13 +154,12 @@ There are no writes in this system. All operations are concurrent reads followed
 
 ### Algorithm Caching Strategy
 
-The algorithm manages its own memory via a configurable caching strategy (see D11 in `02-decisions.md`):
+Algorithm type and caching strategy are orthogonal (see D9 and D11 in `02-decisions.md`):
 
-- `in_memory` — all frequency maps held in RAM; default for current implementation
-- `spill_to_disk` — maps flushed to `spill_dir` when `max_memory_mb` is exceeded; exact results, RAM-bounded
-- `probabilistic` — HyperLogLog/MinHash; sub-linear memory, approximate results with error bounds
+- **Exact algorithms** (`pairwise_exact`, `nway_exact`) build frequency maps. The `cache` config block controls where those maps live — `in_memory` (default) or `spill_to_disk` when RAM is exceeded.
+- **Approximate algorithms** (`pairwise_approximate`, `nway_approximate`) use HyperLogLog and MinHash directly — no frequency map is built, no cache config applies.
 
-The connector and writer layers are unaware of which strategy is active.
+The connector and writer layers are unaware of which algorithm type or caching strategy is active.
 
 ### What Is Not Addressed Yet
 

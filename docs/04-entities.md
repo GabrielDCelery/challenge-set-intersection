@@ -63,11 +63,14 @@ type IntersectionAlgorithm interface {
 }
 ```
 
-**Current implementation:** `PairwiseAlgorithm` — requires exactly two datasets, exact counts, frequency map held in memory.
+**Current implementation:** `pairwise_exact` — two datasets, exact counts, frequency map in memory.
 
 **Future implementations:**
-- `NWayAlgorithm` — N datasets, all pairwise and multi-way region breakdowns
-- `ApproximateAlgorithm` — probabilistic counts via HyperLogLog/MinHash for very large datasets
+- `pairwise_approximate` — two datasets, HyperLogLog for distinct counts, MinHash for overlap; no frequency map; approximate results with error bounds
+- `nway_exact` — N datasets, full pairwise and multi-way region breakdowns; required for Venn diagram output
+- `nway_approximate` — N datasets, probabilistic
+
+**Note:** caching strategy (`in_memory`, `spill_to_disk`) only applies to exact implementations. Approximate implementations do not build frequency maps and have no cache config.
 
 ---
 

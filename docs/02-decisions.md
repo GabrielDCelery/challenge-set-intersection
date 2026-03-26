@@ -17,9 +17,9 @@
 | D4  | In-memory hash map vs streaming/external approach for large files?   | Streaming via `KeyIterator` returning `[][]string` batches — never bulk load |
 | D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | TBD — algorithm implementation detail, resolved per `IntersectionAlgorithm` type |
 | D6  | Single-pass vs multi-pass over the files?                            | Single-pass per dataset |
-| D9  | Should the intersection algorithm be pluggable?                      | Yes — `IntersectionAlgorithm` interface, implementations swapped via config |
+| D9  | Should the intersection algorithm be pluggable?                      | Yes — `IntersectionAlgorithm` interface; type and caching strategy are orthogonal |
 | D10 | Should connectors stream sequentially or in parallel?                | Parallel — one goroutine per connector, algorithm owns concurrency |
-| D11 | How should the algorithm manage memory for large frequency maps?     | Configurable caching strategy per algorithm — in-memory, spill-to-disk, or probabilistic |
+| D11 | How should exact algorithms manage frequency map memory?             | Configurable cache block — `in_memory` or `spill_to_disk`; not applicable to approximate algorithms |
 
 **System Boundaries**
 
@@ -181,7 +181,7 @@ datasets:
 key_columns: [udprn, email]
 
 algorithm:
-  type: pairwise
+  type: pairwise_exact
   cache:
     strategy: in_memory
     max_memory_mb: 512
@@ -228,7 +228,7 @@ Internally the shorthand constructs an equivalent CSV config — it is a conveni
 
 ## D9: Pluggable IntersectionAlgorithm
 
-**Decision:** The intersection computation is abstracted behind an `IntersectionAlgorithm` interface. The implementation is selected via the `algorithm.type` field in the YAML config.
+**Decision:** The intersection computation is abstracted behind an `IntersectionAlgorithm` interface. The implementation is selected via the `algorithm.type` field in the YAML config. Algorithm type and caching strategy are orthogonal concerns — type determines how computation is done, caching determines where the frequency map lives (exact algorithms only).
 
 ```go
 type IntersectionAlgorithm interface {
@@ -236,51 +236,58 @@ type IntersectionAlgorithm interface {
 }
 ```
 
-**Current implementation:** `PairwiseAlgorithm` — accepts exactly two datasets, builds frequency maps, computes the four metrics.
+**Algorithm types:**
 
-**Future implementations** (not in scope for this iteration but the interface accommodates them):
-- `NWayAlgorithm` — computes all pairwise and multi-way region breakdowns for N datasets; required for Venn diagram output
-- `ApproximateAlgorithm` — uses HyperLogLog for distinct counts and MinHash for overlap estimation; suited for very large datasets where exact counts are not feasible
+| Type                   | Datasets | Accuracy    | Frequency map? | Notes                                        |
+| ---------------------- | -------- | ----------- | -------------- | -------------------------------------------- |
+| `pairwise_exact`       | 2        | Exact       | Yes            | Current implementation                       |
+| `pairwise_approximate` | 2        | ~1-2% error | No             | HyperLogLog for distinct, MinHash for overlap |
+| `nway_exact`           | N        | Exact       | Yes            | Required for Venn diagram output             |
+| `nway_approximate`     | N        | ~1-2% error | No             | Deferred                                     |
 
-**Why D5 is now an implementation detail:** exact vs approximate counting is no longer a system-level decision — it is a property of whichever algorithm implementation is selected. The `PairwiseAlgorithm` is exact. An `ApproximateAlgorithm` would be probabilistic. The rest of the system does not change.
+**Why D5 is now an implementation detail:** exact vs approximate is a property of the algorithm type, not a system-level flag. Approximate algorithms do not build frequency maps at all — they use HyperLogLog and MinHash directly. Caching strategy is irrelevant for approximate algorithms and only applies to exact ones.
 
 **Alternatives considered:**
 
-- Hardcode the pairwise algorithm — simple for the current spec but forces code changes to support N-way comparison or approximation; ruled out
-- Flag-controlled approximation mode — adds conditional logic throughout the algorithm rather than isolating it in a separate implementation; ruled out
-- Pluggable interface — chosen; each algorithm implementation owns its own memory strategy, parallelism, and accuracy tradeoffs
+- Hardcode the pairwise algorithm — simple for the current spec but forces code changes to support N-way or approximation; ruled out
+- Flag-controlled approximation mode — adds conditional logic throughout rather than isolating it in a separate implementation; ruled out
+- Pluggable interface — chosen; each implementation owns its own computation approach and memory needs
 
-**Why:** The three-layer architecture (`KeyIterator → IntersectionAlgorithm → ResultWriter`) gives each layer a single, well-defined responsibility. The algorithm layer owns all computation concerns — memory, parallelism, accuracy — without any of those concerns leaking into the connector or writer layers.
+**Why:** The three-layer architecture (`KeyIterator → IntersectionAlgorithm → ResultWriter`) gives each layer a single well-defined responsibility. Algorithm type and caching strategy being separate means you can change one without touching the other.
 
 ---
 
-## D11: Algorithm caching strategy
+## D11: Caching strategy for exact algorithms
 
-**Decision:** The algorithm's memory strategy is configurable via an `algorithm.cache` block in the YAML config. Three strategies are supported, selected based on dataset size and accuracy requirements:
+**Decision:** Exact algorithm implementations (`pairwise_exact`, `nway_exact`) support a configurable `cache` block controlling where the frequency map lives. Approximate algorithms have no cache block — they never build a frequency map.
 
-| Strategy       | Memory usage                  | Accuracy  | When to use                                      |
-| -------------- | ----------------------------- | --------- | ------------------------------------------------ |
-| `in_memory`    | O(distinct keys per dataset)  | Exact     | Default — datasets fit within `max_memory_mb`   |
-| `spill_to_disk`| O(batch size) working memory  | Exact     | Frequency map exceeds `max_memory_mb`            |
-| `probabilistic`| O(1) — kilobytes regardless   | Approximate (~1-2% error) | Distinct key count is too large for disk spill |
+| Strategy       | Memory usage                 | Accuracy | When to use                                    |
+| -------------- | ---------------------------- | -------- | ---------------------------------------------- |
+| `in_memory`    | O(distinct keys per dataset) | Exact    | Default — frequency map fits within `max_memory_mb` |
+| `spill_to_disk`| O(batch size) working memory | Exact    | Frequency map exceeds `max_memory_mb`          |
 
-**Config:**
+**Config for exact algorithm:**
 
 ```yaml
 algorithm:
-  type: pairwise
+  type: pairwise_exact
   cache:
-    strategy: in_memory     # in_memory | spill_to_disk | probabilistic
-    max_memory_mb: 512      # threshold before spill_to_disk kicks in
-    spill_dir: /tmp         # only used when strategy: spill_to_disk
+    strategy: in_memory   # in_memory | spill_to_disk
+    max_memory_mb: 512    # threshold before spill_to_disk kicks in
+    spill_dir: /tmp       # only used when strategy: spill_to_disk
+```
+
+**Config for approximate algorithm:**
+
+```yaml
+algorithm:
+  type: pairwise_approximate
+  # no cache block — approximate algorithms do not build frequency maps
 ```
 
 **How each strategy works:**
 
-- `in_memory` — frequency map held entirely in RAM. Each goroutine writes to its own map concurrently with no locking. Fast, simple, exact. Default for the current implementation.
-- `spill_to_disk` — frequency map written to a temp file in `spill_dir` in sorted key order. When the in-memory portion exceeds `max_memory_mb`, it is flushed and sorted. Final merge produces exact counts. More complex but RAM-bounded.
-- `probabilistic` — uses HyperLogLog for distinct counts and MinHash for overlap estimation. Sub-linear memory, approximate results. Output includes error bounds. Resolves D5 for this strategy.
+- `in_memory` — frequency map held entirely in RAM. Each goroutine writes to its own map with no locking (each dataset has its own map). Fast, simple, exact. Default.
+- `spill_to_disk` — when the in-memory map exceeds `max_memory_mb`, it is flushed to `spill_dir` in sorted key order. At the end all chunks are merged to produce exact counts. RAM-bounded but significantly slower due to disk I/O.
 
-**Why the algorithm owns this:** caching strategy is a computation concern, not a connector or writer concern. The connector streams rows regardless of what the algorithm does with them. The writer formats results regardless of how they were computed. Keeping the strategy in the algorithm config block means it can be tuned independently of source or output format.
-
-**Current implementation:** `in_memory` only. `spill_to_disk` and `probabilistic` are deferred.
+**Current implementation:** `in_memory` only. `spill_to_disk` is deferred.
