@@ -69,7 +69,7 @@ The core output is a set of counts derived from the two datasets. These counts m
 
 - OQ1: What is the maximum expected distinct key count in a single dataset? This determines whether the in-memory frequency map is viable or whether an external sort-merge / HyperLogLog approach is needed.
 - OQ2: UDPRN is defined as an 8-digit numeric string — should leading zeros be preserved (i.e. is "08034283" distinct from "8034283")? The sample data includes leading zeros.
-- OQ3: Are there any other key types beyond UDPRN that the program must support in this iteration, or is UDPRN the sole key type?
+- OQ3: ~~Are there any other key types beyond UDPRN?~~ **Resolved** — the program supports any key type via `--key-columns`; the algorithm treats all keys as opaque strings regardless of their source or meaning.
 - OQ4: Is the output format fixed (stdout only), or is writing results to a file also required?
 - OQ5: ~~Should the program handle CSV files with multiple columns?~~ **Resolved** — multi-column support required; key columns specified via `--key-columns` flag.
 - OQ6: What is the target runtime environment and available RAM? This determines the practical ceiling for the in-memory frequency map.
