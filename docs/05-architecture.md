@@ -93,21 +93,38 @@ type KeyIterator interface {
 
 ### Streaming vs Bulk Load
 
-**Decision:** Stream both datasets via `KeyIterator`. Never load a full dataset into memory.
+**Decision:** Stream all datasets via `KeyIterator` in parallel — one goroutine per connector. Never load a full dataset into memory.
 
-**Algorithm:**
-1. Stream dataset A via its connector in batches — for each `[]string` row, join with `\x00` to form a map key, increment `map[string]uint64` frequency map
-2. Stream dataset B via its connector in batches — for each `[]string` row, join with `\x00`, look up in the frequency map, and accumulate overlap counts
-3. Compute the four metrics from the frequency map and accumulators
+**Algorithm (PairwiseAlgorithm):**
+1. Launch one goroutine per connector — each streams its dataset independently and builds its own frequency map concurrently
+2. Wait for all goroutines to complete
+3. Compute the four metrics by comparing the completed frequency maps
+4. Check `ConnectorStats` error rates — abort if any connector exceeded `max_error_rate`
 
-Memory usage is O(distinct keys in A). Dataset B is never stored — each row is consumed, looked up, and discarded.
+Memory usage is O(distinct keys across all datasets). No dataset is stored as raw rows — each row is consumed, joined with `\x00`, inserted into the frequency map, and discarded.
+
+**Why parallel:** connectors are fully independent — a CSV file read and a REST API paginated fetch share no state. Streaming them sequentially wastes wall-clock time for no benefit. Parallelism is natural in Go via goroutines and is the algorithm's responsibility to manage — the connector interface does not change.
 
 **Alternatives considered:**
 
-- Load both datasets fully into memory as slices — simpler code, but makes the solution incompatible with remote sources and large datasets; ruled out
-- External sort-merge — O(1) extra memory, exact results, but requires temp disk space and adds significant I/O complexity; only warranted if distinct key count in A does not fit in RAM; deferred
+- Sequential streaming — simpler but wastes time; a slow remote connector blocks all subsequent connectors; ruled out
+- Load both datasets fully into memory as slices — incompatible with remote sources and large datasets; ruled out
+- External sort-merge — O(1) extra memory, exact results, but requires temp disk space and significant I/O complexity; deferred
 
-**Why:** Streaming is the only approach compatible with the connector abstraction. A remote source (API, database, SFTP) cannot be bulk-loaded — it can only be iterated. Designing for streaming from the start means the algorithm works identically regardless of source.
+---
+
+### Concurrent Streaming Design
+
+Each connector runs in its own goroutine, streaming batches into a dedicated frequency map. The algorithm waits for all goroutines via a `sync.WaitGroup` or equivalent, collecting errors via a channel. If any goroutine exceeds `max_error_rate` or encounters a fatal error it signals cancellation via a shared context — all other goroutines stop cleanly.
+
+```
+goroutine 1: connector A → frequency map A
+goroutine 2: connector B → frequency map B
+     ↓ (both complete)
+main: compare maps → IntersectionResult → ResultWriter
+```
+
+This design extends naturally to N datasets — fan out to N goroutines, wait for all, then compute intersections from N maps.
 
 ---
 
@@ -115,32 +132,30 @@ Memory usage is O(distinct keys in A). Dataset B is never stored — each row is
 
 ### Read/Write Split
 
-There are no writes in this system. All operations are reads from disk followed by in-memory computation.
+There are no writes in this system. All operations are concurrent reads followed by in-memory computation.
 
-- **Reads:** Two sequential file reads. No random access required. Throughput is bounded by disk read speed and CSV parse speed.
-- **Writes:** One write to stdout at the end. Negligible.
+- **Reads:** N concurrent connector streams. No random access required. Throughput per connector is bounded by its source speed (disk, network, database cursor).
+- **Writes:** One write to the configured output destination at the end. Negligible.
 
 ### Memory Scaling
 
-| Scenario                               | Memory required                   | Approach                   |
-| -------------------------------------- | --------------------------------- | -------------------------- |
-| Small files (< 1M rows, < 500K keys)   | < ~50MB (string map)              | In-memory frequency map    |
-| Medium files (1M–50M rows)             | ~500MB–5GB depending on key width | In-memory if RAM allows    |
-| Very large files (> 50M distinct keys) | Exceeds typical RAM               | External sort-merge or HLL |
+| Scenario                                      | Memory required                          | Approach                        |
+| --------------------------------------------- | ---------------------------------------- | ------------------------------- |
+| Small datasets (< 1M rows, < 500K keys each)  | < ~50MB per frequency map                | In-memory frequency maps        |
+| Medium datasets (1M–50M rows)                 | ~500MB–5GB per map depending on key width| In-memory if RAM allows         |
+| Very large datasets (> 50M distinct keys)     | Exceeds typical RAM                      | Algorithm caching strategy (D9) |
 
 ### Known Hotspots
 
-- **Hash map insertion** for file A: O(n) time and memory. For very high cardinality this is the dominant cost.
-- **Key normalisation**: if keys are stored as strings, each key occupies more memory than an integer. For 8-digit UDPRNs stored as uint32, memory is ~4x smaller than string storage.
-- **CSV parsing**: naive line-by-line string splitting is slower than a proper CSV parser that handles quoting. For large files, parser choice matters.
+- **Concurrent map writes:** each goroutine writes to its own dedicated frequency map — no shared state, no locking required during the streaming phase.
+- **Hash map insertion:** O(n) time and memory per dataset. For very high cardinality this is the dominant cost.
+- **Key join:** `strings.Join(row, "\x00")` on every row — cheap but worth noting for very high throughput scenarios.
+- **CSV parsing:** naive line-by-line string splitting is slower than a proper CSV parser that handles quoting. For large files, parser choice matters.
 
 ### What Is Not Addressed Yet
 
-The following cannot be sized without answers to the open questions in `01-requirements.md`:
-
 - Acceptable wall-clock runtime (OQ1)
-- Whether external-sort or HyperLogLog is needed (depends on max distinct key count vs available RAM)
-- Whether parallelism (concurrent file reads) is worth the implementation complexity
+- Whether the algorithm's caching strategy (spill to disk, HyperLogLog) is needed — depends on max distinct key count vs available RAM (OQ1, OQ6)
 
 ---
 

@@ -39,8 +39,9 @@ The core output is a set of counts derived from the two datasets. These counts m
 - How large can the input files be? The instructions call out scalability "in terms of number of rows" and "number of unique key values" — what is the upper bound? (e.g. millions of rows, tens of millions of distinct keys?)
 - What is the acceptable wall-clock time for a single run at maximum file size? (e.g. under 10 seconds, under 1 minute?)
 - **Resolved:** Raw data ingestion is streaming — datasets are consumed via `KeyIterator` in batches and never fully loaded into memory.
-- **Open:** The frequency map for dataset A is held in memory and grows O(distinct keys in A). For very large datasets this is a hard memory constraint. If the distinct key count exceeds available RAM, an external sort-merge or probabilistic approach (HyperLogLog) will be required. See D5 in `02-decisions.md`.
-- **Deferred:** Connector-level buffer memory (e.g. a REST connector holding a page in memory during a `NextBatch()` call, or buffering for retry) is bounded by batch size and is the connector's responsibility. This is acknowledged as a concern but not addressed in this iteration.
+- **Resolved:** Connectors stream in parallel — one goroutine per connector, managed by the algorithm. Wall-clock time is bounded by the slowest connector, not the sum of all connectors.
+- **Open:** Frequency maps are held in memory and grow O(distinct keys per dataset). For very large datasets this is a hard memory constraint. The algorithm's caching strategy (see stage 3) addresses this — but the upper bound depends on OQ1 and OQ6.
+- **Deferred:** Connector-level buffer memory (e.g. a REST connector holding a page in memory during a `NextBatch()` call) is bounded by batch size and is the connector's responsibility. Acknowledged but not addressed in this iteration.
 
 ### Scalability
 

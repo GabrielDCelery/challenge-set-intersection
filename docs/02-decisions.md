@@ -18,6 +18,7 @@
 | D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | TBD — algorithm implementation detail, resolved per `IntersectionAlgorithm` type |
 | D6  | Single-pass vs multi-pass over the files?                            | Single-pass per dataset |
 | D9  | Should the intersection algorithm be pluggable?                      | Yes — `IntersectionAlgorithm` interface, implementations swapped via config |
+| D10 | Should connectors stream sequentially or in parallel?                | Parallel — one goroutine per connector, algorithm owns concurrency |
 
 **System Boundaries**
 
