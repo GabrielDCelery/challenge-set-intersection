@@ -15,19 +15,18 @@
 | #   | Question                                          | Decision                                                   |
 | --- | ------------------------------------------------- | ---------------------------------------------------------- |
 | D4  | Streaming vs bulk load?                           | Stream via `KeyIterator` (`[][]string` batches)            |
-| D5  | Exact vs probabilistic?                           | Algorithm type choice; `precision` param; output includes error bounds |
-| D6  | Single-pass vs multi-pass?                        | Single-pass per dataset                                    |
-| D9  | Pluggable algorithm?                              | `IntersectionAlgorithm` interface; type and cache orthogonal |
-| D10 | Sequential vs parallel connector streaming?       | Parallel — one goroutine per connector                     |
-| D11 | Frequency map memory for exact algorithms?        | `in_memory` or `spill_to_disk`; n/a for approximate       |
-| D12 | Long-running process control?                     | `run.timeout_seconds`; resume deferred                     |
+| D5  | Single-pass vs multi-pass?                        | Single-pass per dataset                                    |
+| D8  | Pluggable algorithm?                              | `IntersectionAlgorithm` interface; type and cache orthogonal |
+| D9  | Sequential vs parallel connector streaming?       | Parallel — one goroutine per connector                     |
+| D10 | Frequency map memory for exact algorithms?        | `in_memory` or `spill_to_disk`; n/a for approximate       |
+| D11 | Long-running process control?                     | `run.timeout_seconds`; resume deferred                     |
 
 **System Boundaries**
 
 | #   | Question                        | Decision                                              |
 | --- | ------------------------------- | ----------------------------------------------------- |
-| D7  | Config mechanism?               | YAML via `--config`; shorthand for CSV convenience    |
-| D8  | Output format?                  | `ResultWriter` interface; stdout table by default     |
+| D6  | Config mechanism?               | YAML via `--config`; mandatory, no shorthand          |
+| D7  | Output format?                  | `ResultWriter` interface; stdout table by default     |
 
 ---
 
@@ -129,13 +128,7 @@ Each inner `[]string` is one row's key field values, one element per configured 
 
 ---
 
-## D5: Exact vs approximate counts
-
-**Decision:** Resolved via D9 — exact vs approximate is a property of the algorithm type, not a system-level flag. `pairwise_exact` and `nway_exact` produce exact counts. `pairwise_approximate` and `nway_approximate` use HyperLogLog and MinHash with a configurable `precision` parameter. Output always includes error bounds when an approximate algorithm is used. See D9 for full detail.
-
----
-
-## D6: Single-pass per dataset
+## D5: Single-pass per dataset
 
 **Decision:** One pass per dataset — stream dataset A into a frequency map, then stream dataset B once to compute all four metrics.
 
@@ -150,7 +143,7 @@ Each inner `[]string` is one row's key field values, one element per configured 
 
 ---
 
-## D7: Configuration via YAML config file
+## D6: Configuration via YAML config file
 
 **Decision:** Dataset sources, key columns, and output destination are specified via a YAML config file passed with `--config`. The config file is mandatory — there is no shorthand or default form.
 
@@ -202,7 +195,7 @@ run:
 
 ---
 
-## D8: Output via ResultWriter interface
+## D7: Output via ResultWriter interface
 
 **Decision:** Results are written via a `ResultWriter` interface. The default writer formats output as a human-readable table to stdout. The output destination is configurable via `--output`.
 
@@ -219,7 +212,7 @@ run:
 
 ---
 
-## D9: Pluggable IntersectionAlgorithm
+## D8: Pluggable IntersectionAlgorithm
 
 **Decision:** The intersection computation is abstracted behind an `IntersectionAlgorithm` interface. The implementation is selected via the `algorithm.type` field in the YAML config. Algorithm type and caching strategy are orthogonal concerns — type determines how computation is done, caching determines where the frequency map lives (exact algorithms only).
 
@@ -238,7 +231,7 @@ type IntersectionAlgorithm interface {
 | `nway_exact`           | N        | Exact       | Yes            | Required for Venn diagram output             |
 | `nway_approximate`     | N        | ~1-2% error | No             | Deferred                                     |
 
-**Why D5 is now an implementation detail:** exact vs approximate is a property of the algorithm type, not a system-level flag. Approximate algorithms do not build frequency maps at all — they use HyperLogLog and MinHash directly. Caching strategy is irrelevant for approximate algorithms and only applies to exact ones.
+**Note:** Exact vs approximate is a property of the algorithm type, not a system-level flag. Approximate algorithms do not build frequency maps at all — they use HyperLogLog and MinHash directly. Caching strategy is irrelevant for approximate algorithms and only applies to exact ones.
 
 **Alternatives considered:**
 
@@ -250,7 +243,7 @@ type IntersectionAlgorithm interface {
 
 ---
 
-## D11: Caching strategy for exact algorithms
+## D10: Caching strategy for exact algorithms
 
 **Decision:** Exact algorithm implementations (`pairwise_exact`, `nway_exact`) support a configurable `cache` block controlling where the frequency map lives. Approximate algorithms have no cache block — they never build a frequency map.
 
@@ -377,7 +370,7 @@ Add `run.timeout_seconds` with a margin above this estimate (e.g. 2×) to allow 
 
 ---
 
-## D12: Long-running process control
+## D11: Long-running process control
 
 **Decision:** A configurable timeout is the primary mechanism for controlling long-running processes. Resume is acknowledged as a desirable future extension but is deferred.
 
