@@ -1,0 +1,150 @@
+# Design Decisions
+
+## Summary
+
+**Domain Model**
+
+| #   | Question                                                                    | Decision |
+| --- | --------------------------------------------------------------------------- | -------- |
+| D1  | How should duplicate keys be counted for total overlap (multiplicity rule)? | TBD      |
+| D2  | Should keys be treated as strings or normalised integers?                   | TBD      |
+| D3  | How are multi-column CSV files handled — which column is the key?           | TBD      |
+
+**Algorithm**
+
+| #   | Question                                                             | Decision |
+| --- | -------------------------------------------------------------------- | -------- |
+| D4  | In-memory hash map vs streaming/external approach for large files?   | TBD      |
+| D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | TBD      |
+| D6  | Single-pass vs multi-pass over the files?                            | TBD      |
+
+**System Boundaries**
+
+| #   | Question                                                   | Decision |
+| --- | ---------------------------------------------------------- | -------- |
+| D7  | CLI argument parsing — positional args vs flags?           | TBD      |
+| D8  | Output format — plain text table vs structured (JSON/CSV)? | TBD      |
+
+---
+
+## Domain Model
+
+## D1: Total overlap multiplicity rule
+
+**Decision:** TBD
+
+**Context:** The spec example defines total overlap as: for key appearing m times in A and n times in B, contribute min(m, n) to the total count. Dataset 1: `A B C D D E F F`, Dataset 2: `A C C D F F F X Y` — total overlap is 11, not the sum of all occurrences.
+
+**Alternatives considered:**
+
+- `min(m, n)` per key — matches the spec example exactly
+- `m * n` (cartesian product) — would produce a much larger number; not what the spec describes
+- `m + n` (sum of occurrences in both files) — also not what the spec describes
+
+**Why:** The spec example is unambiguous: total overlap = sum of min(count_in_A, count_in_B) across all shared keys.
+
+---
+
+## D2: Key normalisation — string vs integer
+
+**Decision:** TBD
+
+**Context:** UDPRN values appear to be 8-digit numeric strings. The sample data contains values with leading zeros (e.g. `08034283`). Treating as integer would silently strip the leading zero and could cause incorrect joins if one file stores `08034283` and another stores `8034283`.
+
+**Alternatives considered:**
+
+- Store as raw string: preserves leading zeros, no normalisation ambiguity
+- Parse as integer: loses leading zeros unless re-padded; risky unless the spec guarantees consistent formatting
+- Normalise to zero-padded 8-char string: handles mixed formats but requires knowing the canonical width
+
+**Why:** TBD — needs confirmation on whether leading zeros are semantically significant (OQ2).
+
+---
+
+## D3: Multi-column CSV handling
+
+**Decision:** TBD
+
+**Context:** The current sample files are single-column CSVs with a `udprn` header. The spec says "handle different files in csv format" which implies the key column may not always be the only column or the first column.
+
+**Alternatives considered:**
+
+- Always use the first column as the key
+- Allow a `--key-column` flag to name the column
+- Require the key column to be named `udprn` (brittle — fails for other key types)
+
+**Why:** TBD — depends on OQ3 (other key types) and OQ5 (multi-column files).
+
+---
+
+## D4: In-memory hash map vs streaming approach
+
+**Decision:** TBD
+
+**Context:** The simplest correct implementation loads one file's keys into a hash map and streams the second file for comparison. For very large files (hundreds of millions of rows), RAM becomes a constraint.
+
+**Alternatives considered:**
+
+- In-memory hash map (hash set for distinct, frequency map for total overlap): O(n) memory on the smaller file. Fast, simple, exact. Feasible if the distinct key count fits in memory.
+- Sort-merge join on disk: sort both files externally, then merge. O(1) extra memory beyond sort buffers, exact counts. Slower due to I/O.
+- Probabilistic structures (HyperLogLog for cardinality, MinHash for overlap): sub-linear memory, approximate results. The spec permits this if accuracy is declared.
+
+**Why:** TBD — gated on OQ1 (file size) and the accuracy requirements.
+
+---
+
+## D5: Exact vs approximate counts
+
+**Decision:** TBD
+
+**Context:** The spec explicitly raises the approximation question: "If approximations are used, ensure the accuracy of the values is appropriately represented." This is only relevant if D4 resolves to a probabilistic approach.
+
+**Alternatives considered:**
+
+- Exact counts via hash map or sort-merge: always correct, memory/time bounded
+- HyperLogLog for distinct counts: ~1–2% error, very low memory (a few KB regardless of cardinality)
+- MinHash / Jaccard estimation for overlap: estimates set similarity, not the raw overlap count directly
+
+**Why:** TBD — if files fit in memory, exact is preferable and simpler to explain. Approximation adds complexity and requires communicating error bounds in output.
+
+---
+
+## D6: Single-pass vs multi-pass
+
+**Decision:** TBD
+
+**Context:** Total key count and total overlap both require knowing frequencies. Distinct count and distinct overlap require only presence.
+
+**Alternatives considered:**
+
+- Single pass with a frequency map: records count per key for both files, then computes all four metrics in one pass per file. Most efficient.
+- Two passes per file (one for total count, one for distinct): simpler logic per pass but reads each file twice — wasteful for large files.
+
+**Why:** Single pass is preferred — collect a frequency map on the first file, stream the second file once.
+
+---
+
+## D7: CLI argument parsing
+
+**Decision:** TBD
+
+**Alternatives considered:**
+
+- Positional arguments: `program fileA.csv fileB.csv` — simple, no flag parsing needed
+- Named flags: `program --file-a A_f.csv --file-b B_f.csv` — self-documenting, easier to extend with `--key-column` later
+
+**Why:** TBD.
+
+---
+
+## D8: Output format
+
+**Decision:** TBD
+
+**Alternatives considered:**
+
+- Plain text table: human-readable, matches the "display" framing in the spec
+- JSON: machine-readable, useful if output is piped to another tool
+- Both (flag-controlled): flexible but adds complexity
+
+**Why:** TBD — the spec says "display", implying human-readable is the primary target.
