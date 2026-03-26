@@ -36,18 +36,17 @@ The core output is a set of counts derived from the two datasets. These counts m
 
 ### Performance
 
-- How large can the input files be? The instructions call out scalability "in terms of number of rows" and "number of unique key values" — what is the upper bound? (e.g. millions of rows, tens of millions of distinct keys?)
-- What is the acceptable wall-clock time for a single run at maximum file size? (e.g. under 10 seconds, under 1 minute?)
 - **Resolved:** Raw data ingestion is streaming — datasets are consumed via `KeyIterator` in batches and never fully loaded into memory.
 - **Resolved:** Connectors stream in parallel — one goroutine per connector, managed by the algorithm. Wall-clock time is bounded by the slowest connector, not the sum of all connectors.
-- **Resolved:** Frequency map memory is managed by the algorithm's configurable caching strategy — `in_memory`, `spill_to_disk`, or `probabilistic` — selected via `algorithm.cache.strategy` in the YAML config. See D11 in `02-decisions.md`. The appropriate strategy depends on OQ1 and OQ6.
+- **Resolved:** Frequency map memory is managed by the algorithm's configurable caching strategy — `in_memory` or `spill_to_disk` for exact algorithms, no map for approximate algorithms. See D11 in `02-decisions.md`.
+- **Open:** What is the acceptable wall-clock time for a single run? This determines whether `in_memory`, `spill_to_disk`, or `pairwise_approximate` is appropriate for a given dataset size. See OQ1 and OQ6.
 - **Deferred:** Connector-level buffer memory (e.g. a REST connector holding a page in memory during a `NextBatch()` call) is bounded by batch size and is the connector's responsibility. Acknowledged but not addressed in this iteration.
 
 ### Scalability
 
 - **Resolved:** Raw data ingestion is not RAM-constrained — the streaming approach handles datasets of any size on the input side.
-- **Open:** The frequency map is RAM-constrained. Must it support datasets where distinct key count exceeds available RAM? If so, see D5.
-- Must it support more than two datasets in a future iteration? The current spec says two — confirm whether extensibility to N datasets is in scope.
+- **Resolved:** Frequency map memory is bounded by the caching strategy — `spill_to_disk` handles datasets that exceed available RAM with exact results. See D11.
+- **Resolved:** N dataset extensibility is accommodated by the `nway_exact` and `nway_approximate` algorithm types. See D9.
 
 ### Availability
 
@@ -55,12 +54,12 @@ The core output is a set of counts derived from the two datasets. These counts m
 
 ### Accuracy
 
-- If the dataset size forces an approximation (e.g. HyperLogLog for distinct counts, MinHash for set similarity), what is the acceptable error margin? The instructions explicitly flag this: "If approximations are used, ensure the accuracy of the values is appropriately represented."
-- Must the total and distinct overlap counts be exact, or is a probabilistic estimate acceptable for very large files?
+- **Resolved:** Approximation is a deliberate choice of algorithm type (`pairwise_approximate`, `nway_approximate`), not a forced fallback. The caller selects exact or approximate via `algorithm.type` in the YAML config. See D9.
+- **Open:** If an approximate algorithm is used, what is the acceptable error margin? The spec flags this: "If approximations are used, ensure the accuracy of the values is appropriately represented." Output must include error bounds when an approximate algorithm is selected.
 
 ### Data Retention
 
-- The program does not persist any output — all results are written to stdout. No intermediate files or caches are retained unless an explicit temp-file strategy is chosen for large-file processing.
+- The program does not persist any output — all results are written to the configured `ResultWriter`. No intermediate files are retained unless `spill_to_disk` caching strategy is active, in which case temp files are written to `spill_dir` and cleaned up after the run.
 
 ---
 
@@ -72,9 +71,10 @@ The core output is a set of counts derived from the two datasets. These counts m
 
 ## Open Questions
 
-- OQ1: What is the maximum expected distinct key count in a single dataset? This determines whether the in-memory frequency map is viable or whether an external sort-merge / HyperLogLog approach is needed.
+- OQ1: What is the maximum expected distinct key count in a single dataset, and what is the acceptable wall-clock time? Together these determine whether `in_memory`, `spill_to_disk`, or an approximate algorithm is appropriate.
 - OQ2: UDPRN is defined as an 8-digit numeric string — should leading zeros be preserved (i.e. is "08034283" distinct from "8034283")? The sample data includes leading zeros.
 - OQ3: ~~Are there any other key types beyond UDPRN?~~ **Resolved** — the program supports any key type via `--key-columns`; the algorithm treats all keys as opaque strings regardless of their source or meaning.
 - OQ4: ~~Is the output format fixed (stdout only)?~~ **Resolved** — output is abstracted behind a `ResultWriter` interface; stdout is the default writer, additional writers (file, JSON, API) can be added without algorithm changes.
 - OQ5: ~~Should the program handle CSV files with multiple columns?~~ **Resolved** — multi-column support required; key columns specified via `--key-columns` flag.
-- OQ6: What is the target runtime environment and available RAM? This determines the practical ceiling for the in-memory frequency map.
+- OQ6: ~~What is the target runtime environment?~~ **Resolved** — caching strategy (`in_memory` vs `spill_to_disk`) is configurable per run; the program adapts to the available RAM via config rather than assuming an environment.
+- OQ7: If an approximate algorithm is used, what is the acceptable error margin? Required to determine whether approximate output is fit for purpose for a given use case.
