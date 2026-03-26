@@ -152,10 +152,20 @@ There are no writes in this system. All operations are concurrent reads followed
 - **Key join:** `strings.Join(row, "\x00")` on every row — cheap but worth noting for very high throughput scenarios.
 - **CSV parsing:** naive line-by-line string splitting is slower than a proper CSV parser that handles quoting. For large files, parser choice matters.
 
+### Algorithm Caching Strategy
+
+The algorithm manages its own memory via a configurable caching strategy (see D11 in `02-decisions.md`):
+
+- `in_memory` — all frequency maps held in RAM; default for current implementation
+- `spill_to_disk` — maps flushed to `spill_dir` when `max_memory_mb` is exceeded; exact results, RAM-bounded
+- `probabilistic` — HyperLogLog/MinHash; sub-linear memory, approximate results with error bounds
+
+The connector and writer layers are unaware of which strategy is active.
+
 ### What Is Not Addressed Yet
 
 - Acceptable wall-clock runtime (OQ1)
-- Whether the algorithm's caching strategy (spill to disk, HyperLogLog) is needed — depends on max distinct key count vs available RAM (OQ1, OQ6)
+- Whether `spill_to_disk` or `probabilistic` strategies are needed in practice — depends on max distinct key count vs available RAM (OQ1, OQ6)
 
 ---
 

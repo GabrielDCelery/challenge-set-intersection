@@ -19,6 +19,7 @@
 | D6  | Single-pass vs multi-pass over the files?                            | Single-pass per dataset |
 | D9  | Should the intersection algorithm be pluggable?                      | Yes — `IntersectionAlgorithm` interface, implementations swapped via config |
 | D10 | Should connectors stream sequentially or in parallel?                | Parallel — one goroutine per connector, algorithm owns concurrency |
+| D11 | How should the algorithm manage memory for large frequency maps?     | Configurable caching strategy per algorithm — in-memory, spill-to-disk, or probabilistic |
 
 **System Boundaries**
 
@@ -181,6 +182,10 @@ key_columns: [udprn, email]
 
 algorithm:
   type: pairwise
+  cache:
+    strategy: in_memory
+    max_memory_mb: 512
+    spill_dir: /tmp
 
 output:
   writer: stdout
@@ -246,3 +251,36 @@ type IntersectionAlgorithm interface {
 - Pluggable interface — chosen; each algorithm implementation owns its own memory strategy, parallelism, and accuracy tradeoffs
 
 **Why:** The three-layer architecture (`KeyIterator → IntersectionAlgorithm → ResultWriter`) gives each layer a single, well-defined responsibility. The algorithm layer owns all computation concerns — memory, parallelism, accuracy — without any of those concerns leaking into the connector or writer layers.
+
+---
+
+## D11: Algorithm caching strategy
+
+**Decision:** The algorithm's memory strategy is configurable via an `algorithm.cache` block in the YAML config. Three strategies are supported, selected based on dataset size and accuracy requirements:
+
+| Strategy       | Memory usage                  | Accuracy  | When to use                                      |
+| -------------- | ----------------------------- | --------- | ------------------------------------------------ |
+| `in_memory`    | O(distinct keys per dataset)  | Exact     | Default — datasets fit within `max_memory_mb`   |
+| `spill_to_disk`| O(batch size) working memory  | Exact     | Frequency map exceeds `max_memory_mb`            |
+| `probabilistic`| O(1) — kilobytes regardless   | Approximate (~1-2% error) | Distinct key count is too large for disk spill |
+
+**Config:**
+
+```yaml
+algorithm:
+  type: pairwise
+  cache:
+    strategy: in_memory     # in_memory | spill_to_disk | probabilistic
+    max_memory_mb: 512      # threshold before spill_to_disk kicks in
+    spill_dir: /tmp         # only used when strategy: spill_to_disk
+```
+
+**How each strategy works:**
+
+- `in_memory` — frequency map held entirely in RAM. Each goroutine writes to its own map concurrently with no locking. Fast, simple, exact. Default for the current implementation.
+- `spill_to_disk` — frequency map written to a temp file in `spill_dir` in sorted key order. When the in-memory portion exceeds `max_memory_mb`, it is flushed and sorted. Final merge produces exact counts. More complex but RAM-bounded.
+- `probabilistic` — uses HyperLogLog for distinct counts and MinHash for overlap estimation. Sub-linear memory, approximate results. Output includes error bounds. Resolves D5 for this strategy.
+
+**Why the algorithm owns this:** caching strategy is a computation concern, not a connector or writer concern. The connector streams rows regardless of what the algorithm does with them. The writer formats results regardless of how they were computed. Keeping the strategy in the algorithm config block means it can be tuned independently of source or output format.
+
+**Current implementation:** `in_memory` only. `spill_to_disk` and `probabilistic` are deferred.

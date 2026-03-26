@@ -40,7 +40,7 @@ The core output is a set of counts derived from the two datasets. These counts m
 - What is the acceptable wall-clock time for a single run at maximum file size? (e.g. under 10 seconds, under 1 minute?)
 - **Resolved:** Raw data ingestion is streaming — datasets are consumed via `KeyIterator` in batches and never fully loaded into memory.
 - **Resolved:** Connectors stream in parallel — one goroutine per connector, managed by the algorithm. Wall-clock time is bounded by the slowest connector, not the sum of all connectors.
-- **Open:** Frequency maps are held in memory and grow O(distinct keys per dataset). For very large datasets this is a hard memory constraint. The algorithm's caching strategy (see stage 3) addresses this — but the upper bound depends on OQ1 and OQ6.
+- **Resolved:** Frequency map memory is managed by the algorithm's configurable caching strategy — `in_memory`, `spill_to_disk`, or `probabilistic` — selected via `algorithm.cache.strategy` in the YAML config. See D11 in `02-decisions.md`. The appropriate strategy depends on OQ1 and OQ6.
 - **Deferred:** Connector-level buffer memory (e.g. a REST connector holding a page in memory during a `NextBatch()` call) is bounded by batch size and is the connector's responsibility. Acknowledged but not addressed in this iteration.
 
 ### Scalability
