@@ -302,14 +302,37 @@ Rather than publishing fixed numbers (which would only be valid for one connecto
 
 **Step 1 — Measure bytes per frequency map entry**
 
-A Go `map[string]uint64` entry costs: the string header (16 bytes on 64-bit) + the string data (key length in bytes) + the uint64 value (8 bytes) + Go map bucket overhead (~50% amortised). For a key of length L:
+Each entry in a `map[string]uint64` costs the following:
+
+| Component             | Size     | Explanation                                                                                   |
+| --------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| Go string header      | 16 bytes | Every Go string is a struct with two fields: a pointer to the string data (8 bytes) and an integer storing the string length (8 bytes). This is paid per entry regardless of the actual string content. |
+| String data           | L bytes  | The actual bytes of the key string. One byte per ASCII character. For `"30433784"` L=8. For a composite key `"30433784\x00alice@example.com"` L = 8 (udprn) + 1 (delimiter) + 20 (email) = 29. |
+| uint64 counter value  | 8 bytes  | The frequency count stored as the map value. Always 8 bytes regardless of the number stored. |
+| Go map bucket overhead| ~50%     | Go maps store entries in buckets of 8 slots each. Each bucket has metadata (overflow pointers, tophash bytes). When a bucket fills up Go allocates a new one. On average this adds ~50% to the raw entry cost. |
+
+**Formula:**
 
 ```
 bytes_per_entry ≈ (16 + L + 8) × 1.5
 ```
 
-For an 8-character UDPRN key: `(16 + 8 + 8) × 1.5 ≈ 48 bytes`
-For a composite key `udprn\x00email` (8 + 1 + 20 = 29 chars): `(16 + 29 + 8) × 1.5 ≈ 79 bytes`
+**Worked examples:**
+
+```
+Single UDPRN key "30433784" (L=8):
+  (16 + 8 + 8) × 1.5 = 48 bytes per entry
+
+Composite key "30433784\x00alice@example.com" (L=29):
+  (16 + 29 + 8) × 1.5 = 79 bytes per entry
+```
+
+**Deriving L from config:**
+
+```
+L = sum of max field lengths for each column in key_columns
+  + (len(key_columns) - 1)   ← one \x00 delimiter between each column
+```
 
 These are estimates. The actual value should be verified by profiling:
 
