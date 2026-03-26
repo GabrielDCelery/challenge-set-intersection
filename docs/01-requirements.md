@@ -58,7 +58,7 @@ The core output is a set of counts derived from the two datasets. These counts m
 ### Accuracy
 
 - **Resolved:** Approximation is a deliberate choice of algorithm type (`pairwise_approximate`, `nway_approximate`), not a forced fallback. The caller selects exact or approximate via `algorithm.type` in the YAML config. See D9.
-- **Open:** If an approximate algorithm is used, what is the acceptable error margin? The spec flags this: "If approximations are used, ensure the accuracy of the values is appropriately represented." Output must include error bounds when an approximate algorithm is selected.
+- **Resolved:** The acceptable error margin is the caller's decision, not a system-level constant. The system exposes a `precision` parameter on approximate algorithms (controlling HyperLogLog accuracy) and always includes error bounds in output when an approximate algorithm is used. The caller tunes precision based on their use case — a higher precision value means lower error at the cost of more memory. See D9.
 
 ### Data Retention
 
@@ -80,4 +80,4 @@ The core output is a set of counts derived from the two datasets. These counts m
 - OQ4: ~~Is the output format fixed (stdout only)?~~ **Resolved** — output is abstracted behind a `ResultWriter` interface; stdout is the default writer, additional writers (file, JSON, API) can be added without algorithm changes.
 - OQ5: ~~Should the program handle CSV files with multiple columns?~~ **Resolved** — multi-column support required; key columns specified via `--key-columns` flag.
 - OQ6: ~~What is the target runtime environment?~~ **Resolved** — caching strategy (`in_memory` vs `spill_to_disk`) is configurable per run; the program adapts to the available RAM via config rather than assuming an environment.
-- OQ7: If an approximate algorithm is used, what is the acceptable error margin? Required to determine whether approximate output is fit for purpose for a given use case.
+- OQ7: ~~What is the acceptable error margin for approximate algorithms?~~ **Resolved** — the system exposes a `precision` config parameter; the caller decides what error margin is acceptable for their use case. Output always includes error bounds. See D9.

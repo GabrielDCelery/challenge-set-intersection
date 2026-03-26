@@ -15,7 +15,7 @@
 | #   | Question                                                             | Decision |
 | --- | -------------------------------------------------------------------- | -------- |
 | D4  | In-memory hash map vs streaming/external approach for large files?   | Streaming via `KeyIterator` returning `[][]string` batches — never bulk load |
-| D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | TBD — algorithm implementation detail, resolved per `IntersectionAlgorithm` type |
+| D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | Algorithm type choice; approximate algorithms expose a `precision` config parameter; output always includes error bounds |
 | D6  | Single-pass vs multi-pass over the files?                            | Single-pass per dataset |
 | D9  | Should the intersection algorithm be pluggable?                      | Yes — `IntersectionAlgorithm` interface; type and caching strategy are orthogonal |
 | D10 | Should connectors stream sequentially or in parallel?                | Parallel — one goroutine per connector, algorithm owns concurrency |
@@ -181,12 +181,18 @@ datasets:
 
 key_columns: [udprn, email]
 
+# exact algorithm — use when dataset fits within memory constraints
 algorithm:
   type: pairwise_exact
   cache:
     strategy: in_memory
     max_memory_mb: 512
     spill_dir: /tmp
+
+# approximate algorithm — use when dataset is too large for exact counting
+# algorithm:
+#   type: pairwise_approximate
+#   precision: 14   # 0.8% error, ~256KB memory
 
 output:
   writer: stdout
@@ -286,8 +292,14 @@ algorithm:
 ```yaml
 algorithm:
   type: pairwise_approximate
+  precision: 14   # HyperLogLog precision parameter — range 4-18, higher = more accurate, more memory
+                  # precision 14 ≈ 0.8% error, ~256KB memory regardless of dataset size
+                  # precision 10 ≈ 3.2% error, ~16KB memory
+                  # precision 18 ≈ 0.2% error, ~4MB memory
   # no cache block — approximate algorithms do not build frequency maps
 ```
+
+Output always includes error bounds when an approximate algorithm is used — e.g. `distinct_overlap: 4823901 (± 0.8%)`. The acceptable error margin is the caller's decision based on their use case; the system's responsibility is to report it accurately.
 
 **How each strategy works:**
 
