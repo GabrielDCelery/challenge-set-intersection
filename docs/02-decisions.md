@@ -8,7 +8,7 @@
 | --- | --------------------------------------------------------------------------- | -------------------------------------------------- |
 | D1  | How should duplicate keys be counted for total overlap (multiplicity rule)? | `m × n` (cartesian product) per shared key, summed |
 | D2  | Should keys be treated as strings or normalised integers?                   | TBD                                                |
-| D3  | How are multi-column CSV files handled — which column is the key?           | TBD                                                |
+| D3  | How are multi-column CSV files handled — which column is the key?           | `--key-columns` required flag, comma-separated column names, no default |
 
 **Algorithm**
 
