@@ -63,17 +63,18 @@
 
 ## D3: Multi-column CSV handling
 
-**Decision:** TBD
+**Decision:** Support one or more named key columns, specified at runtime via a `--key-columns` flag (comma-separated column names). When multiple columns are specified, their values are concatenated with a delimiter to form a composite key string. The rest of the algorithm is unchanged.
 
-**Context:** The current sample files are single-column CSVs with a `udprn` header. The spec says "handle different files in csv format" which implies the key column may not always be the only column or the first column.
+**Context:** The current sample files are single-column CSVs with a `udprn` header, but the platform is designed to handle richer datasets where a row may be identified by multiple columns (e.g. `udprn`, `email`, `loyalty_card_id`). The solution must be configurable without code changes.
 
 **Alternatives considered:**
 
-- Always use the first column as the key
-- Allow a `--key-column` flag to name the column
-- Require the key column to be named `udprn` (brittle — fails for other key types)
+- Always use the first column as the key — simple but not extensible; breaks on multi-column or reordered files
+- Allow a `--key-column` flag (single column name) — handles the current data but requires code change to support composite keys later
+- Allow `--key-columns` (comma-separated list) — handles both single and composite keys; chosen
+- Require the key column to be named `udprn` — brittle, breaks for any other key type
 
-**Why:** TBD — depends on OQ3 (other key types) and OQ5 (multi-column files).
+**Why:** Composite key support is a stated requirement of the platform context. Making it a required flag keeps the algorithm generic and forces the caller to be explicit — key extraction is a configurable pre-processing step, and the intersection logic operates on opaque strings regardless of how many source columns were combined. There is no default: omitting `--key-columns` is a hard error. A default (first column, all columns) risks silently wrong results if the file structure changes or contains non-key columns; in a privacy-sensitive platform, silent incorrectness is unacceptable.
 
 ---
 

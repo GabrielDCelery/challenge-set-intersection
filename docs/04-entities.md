@@ -57,11 +57,13 @@ Represents the computed statistics from comparing two Datasets. This is the outp
 
 Configuration supplied by the user at runtime, controlling how files are parsed.
 
-| Field         | Type   | Notes                                                                   |
-| ------------- | ------ | ----------------------------------------------------------------------- |
-| `file_path_a` | string | Path to the first CSV file                                              |
-| `file_path_b` | string | Path to the second CSV file                                             |
-| `key_column`  | string | Name of the column to use as the key (default: first column or `udprn`) |
-| `has_header`  | bool   | Whether the first row is a header to skip (default: true)               |
+| Field         | Type     | Notes                                                                                                                                                                                                       |
+| ------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `file_path_a` | string   | Path to the first CSV file                                                                                                                                                                                  |
+| `file_path_b` | string   | Path to the second CSV file                                                                                                                                                                                 |
+| `key_columns` | []string | **Required.** Ordered list of column names to use as the key. If multiple, values are joined with `\|` delimiter to form a composite key string. Omitting this field is a hard error — there is no default. |
+| `has_header`  | bool     | Whether the first row is a header to skip (default: true)                                                                                                                                                   |
 
-**Open:** Should `key_column` be a column name (string match against header) or a column index (zero-based integer)? Name matching is more robust but requires a header row.
+**Composite key construction:** for a row with `udprn=30433784` and `email=alice@example.com`, `key_columns=["udprn","email"]` produces the key string `"30433784|alice@example.com"`. The delimiter `|` is chosen as it does not appear in UDPRN or common email values. The intersection algorithm then operates on these opaque strings with no further changes.
+
+**Note:** Column resolution is always by name (matched against the header row), not by index. This is more robust to column reordering and makes the config self-documenting. If any named column is not present in the file header, the program exits with an error before processing any rows.
