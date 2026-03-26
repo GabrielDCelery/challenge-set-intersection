@@ -28,9 +28,8 @@ The core output is a set of counts derived from the two datasets. These counts m
 - FR12: Results are written via a `ResultWriter` interface — the algorithm has no knowledge of the output destination.
 - FR13: The stdout writer formats results as a human-readable table with clearly labelled metrics, including skipped row counts from each connector.
 - FR14: The output destination is configurable via the `output.writer` field in the YAML config (default: stdout).
-- FR15: The output labels each metric clearly so the caller can tell which number corresponds to which statistic.
-- FR16: If `run.timeout_seconds` is configured and exceeded, the program cancels all in-flight connector goroutines, flushes partial `ConnectorStats` to stderr, and exits with a non-zero exit code and a clear timeout message.
-- FR17: Resume on failure is not supported in this iteration. A timed-out or failed run must be restarted from the beginning.
+- FR15: If `run.timeout_seconds` is configured and exceeded, the program cancels all in-flight connector goroutines, flushes partial `ConnectorStats` to stderr, and exits with a non-zero exit code and a clear timeout message.
+- FR16: Resume on failure is deferred — the architecture supports it but it is not implemented in this iteration. A failed or timed-out run must be restarted from the beginning. See D12.
 
 ---
 
@@ -63,12 +62,6 @@ The core output is a set of counts derived from the two datasets. These counts m
 ### Data Retention
 
 - The program does not persist any output — all results are written to the configured `ResultWriter`. No intermediate files are retained unless `spill_to_disk` caching strategy is active, in which case temp files are written to `spill_dir` and cleaned up after the run.
-
----
-
-## Design Clarifications
-
-[Leave empty — populated as decisions are made and their implications become clear]
 
 ---
 
