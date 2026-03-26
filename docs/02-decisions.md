@@ -4,11 +4,11 @@
 
 **Domain Model**
 
-| #   | Question                                                                    | Decision |
-| --- | --------------------------------------------------------------------------- | -------- |
+| #   | Question                                                                    | Decision                                           |
+| --- | --------------------------------------------------------------------------- | -------------------------------------------------- |
 | D1  | How should duplicate keys be counted for total overlap (multiplicity rule)? | `m × n` (cartesian product) per shared key, summed |
-| D2  | Should keys be treated as strings or normalised integers?                   | TBD      |
-| D3  | How are multi-column CSV files handled — which column is the key?           | TBD      |
+| D2  | Should keys be treated as strings or normalised integers?                   | TBD                                                |
+| D3  | How are multi-column CSV files handled — which column is the key?           | TBD                                                |
 
 **Algorithm**
 
@@ -45,9 +45,23 @@ Total = 11  ✓
 
 **Alternatives considered:**
 
-- `m × n` (cartesian product) — matches the spec example exactly; counts every record-pair match across both files; chosen
-- `min(m, n)` per key — would give 1+1+1+2 = 5, not 11; answers a different question (max matchable pairs if each record can only be used once)
-- `m + n` (sum of occurrences) — also not what the spec describes
+Using `Dataset A: A B C D D E F F` and `Dataset B: A C C D F F F X Y`:
+
+```
+Shared key counts:
+  A: 1 in A, 1 in B
+  C: 1 in A, 2 in B
+  D: 2 in A, 1 in B
+  F: 2 in A, 3 in B
+
+m × n:       (1×1) + (1×2) + (2×1) + (2×3) = 1 + 2 + 2 + 6 = 11  ← spec answer
+min(m, n):   min(1,1) + min(1,2) + min(2,1) + min(2,3) = 1 + 1 + 1 + 2 = 5
+m + n:       (1+1) + (1+2) + (2+1) + (2+3) = 2 + 3 + 3 + 5 = 13
+```
+
+- `m × n` (cartesian product) — counts every record-pair match across both files; chosen. Real world: a retailer and a bank both have records for the same address. The retailer has 2 records for it (e.g. two household members who are customers) and the bank has 3 (three account holders at that address). There are 6 possible retailer-bank record pairings for that address — `m × n = 6`. If instead those 2 retailer records are the same person entered twice (a duplicate), the result is still 6 — which is now inflated. This is intentional: a large divergence between total overlap and distinct overlap is the signal that duplicates exist and the data needs cleaning before any analysis is trusted.
+- `min(m, n)` — models exclusive assignment where each record can only be matched once. Real world: a recruitment platform has 2 candidates with a given skill and 3 job openings requiring that skill. You can only place 2 candidates before you run out of people — `min(2,3) = 2`.
+- `m + n` (sum of occurrences) — counts total occurrences of each shared key across both files combined. Real world: a fraud detection team wants to know how many times a suspicious postcode appears across two transaction logs in total — not how many pairs match, just the raw volume. If postcode `SW1A 1AA` appears 5 times in one log and 8 times in another, `m + n = 13` tells you how many transactions reference that postcode across both sources combined.
 
 **Why:** `m × n` represents the number of row pairs across the two files that share the same key — equivalent to a join cardinality. This is meaningful in InfoSum's context: a person appearing twice in dataset A and three times in dataset B represents 6 linkable record pairs. It also serves as a data quality signal: in a clean dataset total overlap equals distinct overlap; significant divergence indicates duplicate records.
 
