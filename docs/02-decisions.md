@@ -14,7 +14,7 @@
 
 | #   | Question                                                             | Decision |
 | --- | -------------------------------------------------------------------- | -------- |
-| D4  | In-memory hash map vs streaming/external approach for large files?   | Streaming via `KeyIterator` interface — never bulk load |
+| D4  | In-memory hash map vs streaming/external approach for large files?   | Streaming via `KeyIterator` returning `[][]string` batches — never bulk load |
 | D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | TBD      |
 | D6  | Single-pass vs multi-pass over the files?                            | Single-pass per dataset |
 
@@ -102,17 +102,26 @@ m + n:       (1+1) + (1+2) + (2+1) + (2+3) = 2 + 3 + 3 + 5 = 13
 
 ## D4: Streaming via KeyIterator
 
-**Decision:** Both datasets are consumed via a `KeyIterator` interface — one key at a time, never bulk loaded into memory.
+**Decision:** Both datasets are consumed via a `KeyIterator` interface that returns batches of `[][]string` — never bulk loaded into memory.
 
-**Context:** The ingestion layer must support sources beyond local files (REST API, database, SFTP). Bulk loading is incompatible with remote sources that can only be iterated, and with datasets that exceed available RAM.
+```go
+type KeyIterator interface {
+    NextBatch() (keys [][]string, done bool, err error)
+    Close() error
+}
+```
+
+Each inner `[]string` is one row's key field values, one element per configured key column. The connector extracts the correct fields from the source format (CSV, JSON, database row) and returns them in column order. The algorithm joins each `[]string` with a null byte (`\x00`) to form a frequency map key — no delimiter ambiguity, no collision risk.
+
+**Context:** The ingestion layer must support sources beyond local files (REST API, database, SFTP, JSON). Bulk loading is incompatible with remote sources that can only be iterated. Returning `[]string` per row rather than a pre-joined string keeps the interface format-agnostic and avoids baking a delimiter assumption into the connector contract.
 
 **Alternatives considered:**
 
+- Return `string` per key (pre-joined in the connector) — leaks the delimiter concern into the connector; each connector must agree on the same separator; ruled out in favour of `[][]string`
 - Bulk load both datasets into memory — incompatible with remote connectors and large datasets; ruled out
-- Stream dataset A into a frequency map, stream dataset B for comparison — chosen; O(distinct keys in A) memory, single pass per dataset, works with any connector
 - Sort-merge join on disk — O(1) extra memory, exact, but requires temp disk space and significant complexity; deferred unless in-memory approach proves insufficient
 
-**Why:** Streaming is the only design compatible with the connector abstraction. The algorithm is identical regardless of whether the source is a local CSV, a paginated API, or a database cursor.
+**Why:** `[][]string` keeps the connector interface clean and format-agnostic. The delimiter is a single implementation detail inside the algorithm, not a contract between components.
 
 ---
 

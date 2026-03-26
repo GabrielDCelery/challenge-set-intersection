@@ -10,7 +10,7 @@ This is a stateless, single-process CLI tool. There is no server, no database, n
 
 1. Reads CLI arguments
 2. Constructs two `KeyIterator` connectors from the specified sources
-3. Streams keys from each connector one at a time — no full dataset is ever loaded into memory
+3. Streams keys from each connector in batches — no full dataset is ever loaded into memory
 4. Computes four integer counts
 5. Writes results to stdout
 6. Exits
@@ -25,19 +25,35 @@ The ingestion layer is decoupled from the algorithm via a `KeyIterator` interfac
 
 ```go
 type KeyIterator interface {
-    Next() (key string, done bool, err error)
+    NextBatch() (keys [][]string, done bool, err error)
     Close() error
 }
 ```
 
-The algorithm only calls `Next()` and `Close()`. It has no knowledge of whether the underlying source is a local CSV file, a paginated REST API, a database cursor, or an SFTP stream. Each source type is a separate connector that implements this interface.
+Each call to `NextBatch()` returns a batch of rows. Each row is a `[]string` — one element per configured key column, in the order specified by `key_columns`. The algorithm has no knowledge of the underlying source format (CSV, JSON, database row) or the separator used between fields. The connector is responsible for extracting the correct fields and returning them in the correct order.
 
-**Current connector:** `CSVFileConnector` — opens a local CSV file, resolves the key columns from the header row, and yields one composite key string per call to `Next()`.
+**Example:** with `key_columns: ["udprn", "email"]`, a batch might look like:
+
+```
+[
+  ["30433784", "alice@example.com"],
+  ["71842328", "bob@example.com"],
+]
+```
+
+A CSV connector and a JSON connector receiving the same data return identical output — the algorithm sees no difference.
+
+**Frequency map key:** the algorithm joins the `[]string` slice with a null byte (`\x00`) to form a map key — e.g. `"30433784\x00alice@example.com"`. The null byte cannot appear in any real key value, eliminating collision risk. The join happens in one place inside the algorithm, not in the connector.
+
+**Batching:** batch size is a connector implementation detail. A local CSV connector may return rows as fast as it can parse them. A REST connector returns one page per batch. The algorithm loops over whatever size batch it receives.
+
+**Current connector:** `CSVFileConnector` — opens a local CSV file, reads the header row to resolve `key_columns` to column indices, and returns batches of `[][]string`.
 
 **Future connectors** (not in scope for this implementation but the interface accommodates them without algorithm changes):
-- `RESTConnector` — paginates through an API endpoint, yielding one key per record
-- `DatabaseConnector` — wraps a database cursor
-- `SFTPConnector` — streams a remote CSV over SFTP
+- `JSONConnector` — reads a JSON array or newline-delimited JSON, extracting configured fields per record
+- `RESTConnector` — paginates through an API endpoint, one page per batch
+- `DatabaseConnector` — wraps a database cursor, returning rows in batches
+- `SFTPConnector` — streams a remote file over SFTP, delegating to the appropriate file format connector
 
 ---
 
@@ -48,11 +64,11 @@ The algorithm only calls `Next()` and `Close()`. It has no knowledge of whether 
 **Decision:** Stream both datasets via `KeyIterator`. Never load a full dataset into memory.
 
 **Algorithm:**
-1. Stream dataset A via its connector — build a frequency map `map[string]uint64` of key → count
-2. Stream dataset B via its connector — for each key, look it up in the frequency map and accumulate overlap counts
+1. Stream dataset A via its connector in batches — for each `[]string` row, join with `\x00` to form a map key, increment `map[string]uint64` frequency map
+2. Stream dataset B via its connector in batches — for each `[]string` row, join with `\x00`, look up in the frequency map, and accumulate overlap counts
 3. Compute the four metrics from the frequency map and accumulators
 
-Memory usage is O(distinct keys in A). Dataset B is never stored — each key is consumed, looked up, and discarded.
+Memory usage is O(distinct keys in A). Dataset B is never stored — each row is consumed, looked up, and discarded.
 
 **Alternatives considered:**
 
