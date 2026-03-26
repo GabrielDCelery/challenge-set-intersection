@@ -28,7 +28,7 @@ type KeyIterator interface {
 
 **Key representation:** keys are raw strings, leading zeros preserved (D2). For composite keys, the algorithm joins the `[]string` elements with `\x00` to form a single frequency map key — the delimiter cannot appear in real data so there is no collision risk (D3).
 
-**Soft failures:** malformed rows are skipped by the connector. The row number and reason are recorded in `ConnectorStats.errors`. Processing continues (FR6).
+**Soft failures:** malformed rows are skipped by the connector. The row number and reason are recorded in `ConnectorStats.Errors`. Processing continues (FR6).
 
 **Current implementation:** `CsvKeyIterator` — reads a CSV file row by row, resolves `key_columns` to column indices from the header row.
 
@@ -79,73 +79,40 @@ The value that crosses from `IntersectionAlgorithm` to `ResultWriter`. Holds onl
 
 ```go
 type DatasetStats struct {
-    Source        string
-    TotalCount    uint64
-    DistinctCount uint64
+    Source        string  // human-readable identifier (e.g. file path, URL)
+    TotalCount    uint64  // total rows including duplicates
+    DistinctCount uint64  // unique keys only
 }
 
 type IntersectionResult struct {
-    Datasets        []DatasetStats
-    DistinctOverlap uint64
-    TotalOverlap    uint64
-    ErrorBoundPct   float64
+    Datasets        []DatasetStats // one entry per input source, N-dataset safe
+    DistinctOverlap uint64         // keys appearing in all datasets, regardless of frequency
+    TotalOverlap    uint64         // sum of count_in_A × count_in_B across shared keys
+    ErrorBoundPct   float64        // 0 = exact; non-zero = approximate, e.g. 0.8 for ±0.8%
 }
 ```
 
-**DatasetStats** — one entry per input source, in the order datasets were provided:
-
-| Field           | Type   | Notes                                                        |
-| --------------- | ------ | ------------------------------------------------------------ |
-| `source`        | string | Human-readable source identifier (e.g. file path, URL)       |
-| `total_count`   | uint64 | Total key count including duplicates                         |
-| `distinct_count`| uint64 | Count of distinct keys                                       |
-
-**IntersectionResult** — overlap figures across all datasets:
-
-| Field             | Type    | Notes                                                              |
-| ----------------- | ------- | ------------------------------------------------------------------ |
-| `datasets`        | []DatasetStats | Per-dataset counts, N entries for N input sources         |
-| `distinct_overlap`| uint64  | Count of keys appearing in all datasets (regardless of frequency)  |
-| `total_overlap`   | uint64  | Sum of count_in_A × count_in_B across all shared keys             |
-| `error_bound_pct` | float64 | Error bound as a percentage (0 = exact result, no bound)           |
-
-This shape works for 2 or N datasets without structural change — the `ResultWriter` iterates `datasets` to print per-source rows, then prints the overlap figures. When produced by an approximate algorithm, `error_bound_pct` is non-zero (e.g. `0.8` for ±0.8%) and is included in output by the `ResultWriter` (D8).
+The `ResultWriter` iterates `Datasets` to print per-source rows, then prints the overlap figures. `ErrorBoundPct` is included in output only when non-zero (D8).
 
 ---
 
 ## ConnectorStats
 
-Accumulated per-connector statistics. Populated during iteration and readable at any point via `KeyIterator.Stats()`.
+Accumulated per-connector statistics. Populated during iteration and readable at any point via `KeyIterator.Stats()`. Error rate = `RowsSkipped / RowsRead` — if this exceeds `max_error_rate` after a batch the algorithm aborts with a non-zero exit code and flushes stats to stderr.
 
 ```go
 type RowError struct {
-    RowNumber uint64
-    Reason    string
+    RowNumber uint64 // 1-based row number in the source
+    Reason    string // human-readable description of the problem
 }
 
 type ConnectorStats struct {
-    Source      string
-    RowsRead    uint64
-    RowsSkipped uint64
-    Errors      []RowError
+    Source      string     // matches DatasetStats.Source for traceability
+    RowsRead    uint64     // total rows seen, including skipped
+    RowsSkipped uint64     // rows skipped due to malformed data
+    Errors      []RowError // per-row detail for skipped rows
 }
 ```
-
-| Field          | Type       | Notes                                                          |
-| -------------- | ---------- | -------------------------------------------------------------- |
-| `source`       | string     | Human-readable source identifier — matches `DatasetStats.source` |
-| `rows_read`    | uint64     | Total rows seen by the connector, including skipped rows       |
-| `rows_skipped` | uint64     | Rows skipped due to malformed data                             |
-| `errors`       | []RowError | Per-row error details for skipped rows                         |
-
-**RowError:**
-
-| Field        | Type   | Notes                                      |
-| ------------ | ------ | ------------------------------------------ |
-| `row_number` | uint64 | 1-based row number in the source           |
-| `reason`     | string | Human-readable description of the problem |
-
-**Error rate** = `rows_skipped / rows_read`. If this exceeds `max_error_rate` after a batch the algorithm aborts with a non-zero exit code and flushes stats to stderr.
 
 ---
 
@@ -155,100 +122,43 @@ Parsed from the YAML config file. Drives construction of connectors, algorithm, 
 
 ```go
 type RunConfig struct {
-    Datasets   []DatasetConfig
-    KeyColumns []string
+    Datasets   []DatasetConfig  // one entry per input source; two required for pairwise algorithms
+    KeyColumns []string         // required — omitting is a hard error, no default
     Algorithm  AlgorithmConfig
     Output     OutputConfig
     Run        RunControlConfig
 }
-```
 
-| Field         | Type             | Notes                                                                        |
-| ------------- | ---------------- | ---------------------------------------------------------------------------- |
-| `datasets`    | []DatasetConfig  | One entry per input source. Two required for pairwise algorithms.            |
-| `key_columns` | []string         | **Required.** Column names forming the key. Omitting is a hard error — no default. |
-| `algorithm`   | AlgorithmConfig  | Type and caching strategy.                                                   |
-| `output`      | OutputConfig     | Writer type and destination.                                                 |
-| `run`         | RunControlConfig | Timeout and future resume settings.                                          |
-
----
-
-### DatasetConfig
-
-```go
 type DatasetConfig struct {
-    Connector    string
-    PageSize     int
-    MaxErrorRate float64
+    Connector    string   // "csv" | "rest" | "database" | "sftp"
+    PageSize     int      // batch size per NextBatch() call
+    MaxErrorRate float64  // fraction of skippable rows before aborting
     // CSV-specific
     Path      string
     HasHeader bool
     // REST-specific
     URL        string
-    AuthHeader string
+    AuthHeader string // HTTP header name for the auth token
     AuthToken  string
 }
-```
 
-| Field            | Type    | Notes                                                              |
-| ---------------- | ------- | ------------------------------------------------------------------ |
-| `connector`      | string  | Connector type: `csv`, `rest`, `database`, `sftp`                  |
-| `page_size`      | int     | Batch size returned per `NextBatch()` call                         |
-| `max_error_rate` | float64 | Fraction of rows that may be skipped before the algorithm aborts   |
-| `path`           | string  | CSV only — file path                                               |
-| `has_header`     | bool    | CSV only — whether the first row is a header                       |
-| `url`            | string  | REST only — endpoint URL                                           |
-| `auth_header`    | string  | REST only — HTTP header name for auth token                        |
-| `auth_token`     | string  | REST only — token value                                            |
-
----
-
-### AlgorithmConfig
-
-```go
 type CacheConfig struct {
-    Strategy    string
-    MaxMemoryMB int
-    SpillDir    string
+    Strategy    string // "in_memory" | "spill_to_disk"
+    MaxMemoryMB int    // threshold before spilling
+    SpillDir    string // temp directory for spill files
 }
 
 type AlgorithmConfig struct {
-    Type      string
-    Cache     *CacheConfig // nil for approximate algorithms
-    Precision int          // approximate algorithms only; range 4–18
+    Type      string       // "pairwise_exact" | "pairwise_approximate" | "nway_exact" | "nway_approximate"
+    Cache     *CacheConfig // exact algorithms only; nil for approximate
+    Precision int          // approximate algorithms only; HyperLogLog range 4–18, see D10
 }
-```
 
-| Field       | Type         | Notes                                                                          |
-| ----------- | ------------ | ------------------------------------------------------------------------------ |
-| `type`      | string       | `pairwise_exact`, `pairwise_approximate`, `nway_exact`, `nway_approximate`     |
-| `cache`     | *CacheConfig | Exact algorithms only. `strategy`: `in_memory` or `spill_to_disk`             |
-| `precision` | int          | Approximate algorithms only. Controls HyperLogLog accuracy (4–18). See D10.   |
-
----
-
-### OutputConfig
-
-```go
 type OutputConfig struct {
-    Writer string
+    Writer string // "stdout"; future: "json", "file", "rest"
 }
-```
 
-| Field    | Type   | Notes                                              |
-| -------- | ------ | -------------------------------------------------- |
-| `writer` | string | Output destination: `stdout`. Future: `json`, `file`, `rest` |
-
----
-
-### RunControlConfig
-
-```go
 type RunControlConfig struct {
-    TimeoutSeconds int
+    TimeoutSeconds int // cancels all goroutines and exits non-zero if exceeded
 }
 ```
-
-| Field             | Type | Notes                                                                    |
-| ----------------- | ---- | ------------------------------------------------------------------------ |
-| `timeout_seconds` | int  | Cancels all connector goroutines and exits with non-zero code if exceeded |
