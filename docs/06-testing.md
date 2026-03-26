@@ -4,7 +4,7 @@
 
 The correctness of four computed counts is the entire functional surface of this program. The most important thing to protect is that the total overlap formula matches the spec's definition exactly, and that no count is inflated by double-counting or deflated by mishandling duplicates.
 
-- The total overlap calculation must match the spec example: `min(count_in_A, count_in_B)` per shared key, summed.
+- The total overlap calculation must match the spec example: `count_in_A × count_in_B` per shared key, summed.
 - Distinct overlap must count shared key types, not shared occurrences.
 - Total count must include all rows, including duplicates.
 - Distinct count must deduplicate correctly.
@@ -52,7 +52,7 @@ Run the compiled binary against the provided `data/A_f.csv` and `data/B_f.csv` a
 | Single-column fixture, non-default column name                 | Integration | `--key-columns email` on a file with an `email` column — correct column is used   |
 | Multi-column fixture, composite key                            | Integration | `--key-columns udprn,email` — rows match only when both columns match             |
 | Multi-column fixture, partial match only                       | Integration | Row shares `udprn` but not `email` — should NOT count as overlap                  |
-| File A has all duplicates, file B has all unique               | Integration | Ensures distinct count deduplicates and total overlap uses min()                  |
+| File A has all duplicates, file B has all unique               | Integration | Ensures distinct count deduplicates and total overlap uses m×n                    |
 | Zero overlap between two files                                 | Integration | Ensures overlap counts are 0, not negative or undefined                           |
 | Both files are identical                                       | Integration | Distinct overlap == distinct count; total overlap == total count of either        |
 | One or both files are empty (header only)                      | Integration | Ensures graceful handling of zero-row input                                       |

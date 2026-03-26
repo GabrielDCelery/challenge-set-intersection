@@ -47,7 +47,7 @@ Represents the computed statistics from comparing two Datasets. This is the outp
 | `distinct_count_a` | uint64 | Count of distinct keys in dataset A                                |
 | `distinct_count_b` | uint64 | Count of distinct keys in dataset B                                |
 | `distinct_overlap` | uint64 | Count of keys appearing in both datasets (regardless of frequency) |
-| `total_overlap`    | uint64 | Sum of min(count_in_A, count_in_B) across all shared keys          |
+| `total_overlap`    | uint64 | Sum of count_in_A × count_in_B across all shared keys              |
 
 **Open:** If approximation is used (see D5 in `02-decisions.md`), each count field should carry an associated error bound. Should the error bound be part of this struct, or represented as a separate wrapper?
 

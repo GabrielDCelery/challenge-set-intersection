@@ -6,7 +6,7 @@
 
 | #   | Question                                                                    | Decision |
 | --- | --------------------------------------------------------------------------- | -------- |
-| D1  | How should duplicate keys be counted for total overlap (multiplicity rule)? | TBD      |
+| D1  | How should duplicate keys be counted for total overlap (multiplicity rule)? | `m × n` (cartesian product) per shared key, summed |
 | D2  | Should keys be treated as strings or normalised integers?                   | TBD      |
 | D3  | How are multi-column CSV files handled — which column is the key?           | TBD      |
 
@@ -31,17 +31,25 @@
 
 ## D1: Total overlap multiplicity rule
 
-**Decision:** TBD
+**Decision:** `m × n` (cartesian product) per shared key, summed across all shared keys.
 
-**Context:** The spec example defines total overlap as: for key appearing m times in A and n times in B, contribute min(m, n) to the total count. Dataset 1: `A B C D D E F F`, Dataset 2: `A C C D F F F X Y` — total overlap is 11, not the sum of all occurrences.
+**Context:** The spec example resolves to `m × n`, not `min(m, n)`. Working through the example confirms this:
+
+```
+Key A: 1×1 = 1
+Key C: 1×2 = 2
+Key D: 2×1 = 2
+Key F: 2×3 = 6
+Total = 11  ✓
+```
 
 **Alternatives considered:**
 
-- `min(m, n)` per key — matches the spec example exactly
-- `m * n` (cartesian product) — would produce a much larger number; not what the spec describes
-- `m + n` (sum of occurrences in both files) — also not what the spec describes
+- `m × n` (cartesian product) — matches the spec example exactly; counts every record-pair match across both files; chosen
+- `min(m, n)` per key — would give 1+1+1+2 = 5, not 11; answers a different question (max matchable pairs if each record can only be used once)
+- `m + n` (sum of occurrences) — also not what the spec describes
 
-**Why:** The spec example is unambiguous: total overlap = sum of min(count_in_A, count_in_B) across all shared keys.
+**Why:** `m × n` represents the number of row pairs across the two files that share the same key — equivalent to a join cardinality. This is meaningful in InfoSum's context: a person appearing twice in dataset A and three times in dataset B represents 6 linkable record pairs. It also serves as a data quality signal: in a clean dataset total overlap equals distinct overlap; significant divergence indicates duplicate records.
 
 ---
 
