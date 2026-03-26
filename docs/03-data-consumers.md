@@ -38,14 +38,14 @@ This is a challenge submission — correctness and clarity of approach are being
 - Is the total overlap calculation consistent with the spec's worked example?
 - Does the program handle files with all-duplicate keys without over-counting?
 - What happens if one or both files are empty?
-- How does memory usage scale with file size?
+- How does memory usage scale with file size? — resolved via D10: configurable caching strategy (`in_memory` or `spill_to_disk`), with a documented sizing formula for deriving thresholds from actual dataset characteristics.
 
 ---
 
 ## Future Pipeline Consumer (Hypothetical)
 
 **What they need:**
-If the output is ever piped into another tool or script, a machine-readable format (JSON) would be needed. This is not a current requirement but informs whether a `--json` output flag is worth building.
+If the output is ever piped into another tool or script, a machine-readable format (JSON) would be needed. This is not a current requirement.
 
 **Why:**
 InfoSum's platform generates insights programmatically — future integration could consume this tool's output as structured data rather than human-readable text.
@@ -55,3 +55,5 @@ InfoSum's platform generates insights programmatically — future integration co
 **Key queries:**
 
 - Structured counts keyed by metric name, suitable for downstream aggregation.
+
+**How it would be served:** Output format is controlled via `output.writer` in the YAML config (D7). A JSON writer would be a new `ResultWriter` implementation — no algorithm or connector changes required.
