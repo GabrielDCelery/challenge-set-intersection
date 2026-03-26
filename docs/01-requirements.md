@@ -34,11 +34,14 @@ The core output is a set of counts derived from the two datasets. These counts m
 
 - How large can the input files be? The instructions call out scalability "in terms of number of rows" and "number of unique key values" — what is the upper bound? (e.g. millions of rows, tens of millions of distinct keys?)
 - What is the acceptable wall-clock time for a single run at maximum file size? (e.g. under 10 seconds, under 1 minute?)
-- **Resolved:** Streaming is required. Datasets are consumed via `KeyIterator` in batches and never fully loaded into memory. Memory usage is O(distinct keys in dataset A).
+- **Resolved:** Raw data ingestion is streaming — datasets are consumed via `KeyIterator` in batches and never fully loaded into memory.
+- **Open:** The frequency map for dataset A is held in memory and grows O(distinct keys in A). For very large datasets this is a hard memory constraint. If the distinct key count exceeds available RAM, an external sort-merge or probabilistic approach (HyperLogLog) will be required. See D5 in `02-decisions.md`.
+- **Deferred:** Connector-level buffer memory (e.g. a REST connector holding a page in memory during a `NextBatch()` call, or buffering for retry) is bounded by batch size and is the connector's responsibility. This is acknowledged as a concern but not addressed in this iteration.
 
 ### Scalability
 
-- **Resolved:** The program streams both datasets — it is not constrained by RAM on the input side. The frequency map for dataset A grows with distinct key count; if this exceeds available RAM, an external sort-merge approach would be needed (deferred).
+- **Resolved:** Raw data ingestion is not RAM-constrained — the streaming approach handles datasets of any size on the input side.
+- **Open:** The frequency map is RAM-constrained. Must it support datasets where distinct key count exceeds available RAM? If so, see D5.
 - Must it support more than two datasets in a future iteration? The current spec says two — confirm whether extensibility to N datasets is in scope.
 
 ### Availability
@@ -64,9 +67,9 @@ The core output is a set of counts derived from the two datasets. These counts m
 
 ## Open Questions
 
-- OQ1: ~~What is the maximum expected file size?~~ **Resolved** — streaming approach adopted; not constrained by file size on the input side.
+- OQ1: What is the maximum expected distinct key count in a single dataset? This determines whether the in-memory frequency map is viable or whether an external sort-merge / HyperLogLog approach is needed.
 - OQ2: UDPRN is defined as an 8-digit numeric string — should leading zeros be preserved (i.e. is "08034283" distinct from "8034283")? The sample data includes leading zeros.
 - OQ3: Are there any other key types beyond UDPRN that the program must support in this iteration, or is UDPRN the sole key type?
 - OQ4: Is the output format fixed (stdout only), or is writing results to a file also required?
 - OQ5: ~~Should the program handle CSV files with multiple columns?~~ **Resolved** — multi-column support required; key columns specified via `--key-columns` flag.
-- OQ6: ~~What is the target runtime environment?~~ **Resolved** — streaming approach means memory assumptions are not environment-dependent.
+- OQ6: What is the target runtime environment and available RAM? This determines the practical ceiling for the in-memory frequency map.
