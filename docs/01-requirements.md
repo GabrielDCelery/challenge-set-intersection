@@ -29,6 +29,8 @@ The core output is a set of counts derived from the two datasets. These counts m
 - FR13: The stdout writer formats results as a human-readable table with clearly labelled metrics, including skipped row counts from each connector.
 - FR14: The output destination is configurable via the `output.writer` field in the YAML config (default: stdout).
 - FR15: The output labels each metric clearly so the caller can tell which number corresponds to which statistic.
+- FR16: If `run.timeout_seconds` is configured and exceeded, the program cancels all in-flight connector goroutines, flushes partial `ConnectorStats` to stderr, and exits with a non-zero exit code and a clear timeout message.
+- FR17: Resume on failure is not supported in this iteration. A timed-out or failed run must be restarted from the beginning.
 
 ---
 
@@ -39,7 +41,8 @@ The core output is a set of counts derived from the two datasets. These counts m
 - **Resolved:** Raw data ingestion is streaming — datasets are consumed via `KeyIterator` in batches and never fully loaded into memory.
 - **Resolved:** Connectors stream in parallel — one goroutine per connector, managed by the algorithm. Wall-clock time is bounded by the slowest connector, not the sum of all connectors.
 - **Resolved:** Frequency map memory is managed by the algorithm's configurable caching strategy — `in_memory` or `spill_to_disk` for exact algorithms, no map for approximate algorithms. See D11 in `02-decisions.md`.
-- **Open:** What is the acceptable wall-clock time for a single run? This determines whether `in_memory`, `spill_to_disk`, or `pairwise_approximate` is appropriate for a given dataset size. See OQ1 and OQ6.
+- **Resolved:** Wall-clock time is controlled via `run.timeout_seconds` in the YAML config. If exceeded, all connector goroutines are cancelled via shared context, partial stats are flushed to stderr, and the program exits with a non-zero exit code. See D12.
+- **Deferred:** Resume on failure — the architecture supports it via connector checkpointing and algorithm frequency map persistence, but it is not implemented in this iteration. See D12.
 - **Deferred:** Connector-level buffer memory (e.g. a REST connector holding a page in memory during a `NextBatch()` call) is bounded by batch size and is the connector's responsibility. Acknowledged but not addressed in this iteration.
 
 ### Scalability

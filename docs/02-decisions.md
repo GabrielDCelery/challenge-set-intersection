@@ -20,6 +20,7 @@
 | D9  | Should the intersection algorithm be pluggable?                      | Yes — `IntersectionAlgorithm` interface; type and caching strategy are orthogonal |
 | D10 | Should connectors stream sequentially or in parallel?                | Parallel — one goroutine per connector, algorithm owns concurrency |
 | D11 | How should exact algorithms manage frequency map memory?             | Configurable cache block — `in_memory` or `spill_to_disk`; not applicable to approximate algorithms |
+| D12 | How should long-running processes be controlled?                     | Configurable `run.timeout_seconds`; resume deferred as a future extension |
 
 **System Boundaries**
 
@@ -189,6 +190,9 @@ algorithm:
 
 output:
   writer: stdout
+
+run:
+  timeout_seconds: 3600
 ```
 
 **Shorthand form (CSV only):**
@@ -291,3 +295,38 @@ algorithm:
 - `spill_to_disk` — when the in-memory map exceeds `max_memory_mb`, it is flushed to `spill_dir` in sorted key order. At the end all chunks are merged to produce exact counts. RAM-bounded but significantly slower due to disk I/O.
 
 **Current implementation:** `in_memory` only. `spill_to_disk` is deferred.
+
+---
+
+## D12: Long-running process control
+
+**Decision:** A configurable timeout is the primary mechanism for controlling long-running processes. Resume is acknowledged as a desirable future extension but is deferred.
+
+**Config:**
+
+```yaml
+run:
+  timeout_seconds: 3600
+```
+
+When the timeout is exceeded the program cancels all connector goroutines via a shared context, flushes any partial `ConnectorStats` to stderr, and exits with a non-zero exit code and a clear message indicating timeout.
+
+**Why timeout:**
+- Simple to implement — Go's `context.WithTimeout` propagates cancellation to all goroutines cleanly
+- Protects against runaway jobs — a slow or unresponsive remote connector cannot block the process indefinitely
+- Sufficient for the current use case — the provided datasets are small; timeout is a safety valve, not a primary flow
+
+**Why not resume (yet):**
+Resume requires two components working together:
+1. The connector must checkpoint its position (byte offset, page cursor, last row ID) after each batch
+2. The algorithm must checkpoint its partial frequency map to disk so already-processed rows do not need to be reprocessed
+
+These are coupled — a connector checkpoint without an algorithm checkpoint means reprocessing all rows from the resumed position, producing incorrect counts. Implementing both correctly adds significant complexity without a clear requirement driving it now.
+
+The `KeyIterator` interface is designed to accommodate resume in future — a `Checkpoint() error` and `Resume(checkpoint Checkpoint) error` method pair could be added to the interface without changing the algorithm or writer layers.
+
+**Alternatives considered:**
+- No timeout — process hangs indefinitely on a slow or unresponsive source; unacceptable
+- Timeout only — chosen for now; simple, effective for the current scope
+- Resume only — solves a different problem (recovery) without preventing runaway processes; incomplete without timeout
+- Both — the right long-term answer; resume deferred until there is a concrete requirement for it
