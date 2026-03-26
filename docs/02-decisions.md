@@ -294,7 +294,68 @@ algorithm:
 - `in_memory` — frequency map held entirely in RAM. Each goroutine writes to its own map with no locking (each dataset has its own map). Fast, simple, exact. Default.
 - `spill_to_disk` — when the in-memory map exceeds `max_memory_mb`, it is flushed to `spill_dir` in sorted key order. At the end all chunks are merged to produce exact counts. RAM-bounded but significantly slower due to disk I/O.
 
-**Current implementation:** `in_memory` only. `spill_to_disk` is deferred.
+---
+
+### Sizing Strategy
+
+Rather than publishing fixed numbers (which would only be valid for one connector type and one hardware profile), the right approach is to measure and calculate based on actual conditions. The following documents what to measure and how to derive the thresholds.
+
+**Step 1 — Measure bytes per frequency map entry**
+
+A Go `map[string]uint64` entry costs: the string header (16 bytes on 64-bit) + the string data (key length in bytes) + the uint64 value (8 bytes) + Go map bucket overhead (~50% amortised). For a key of length L:
+
+```
+bytes_per_entry ≈ (16 + L + 8) × 1.5
+```
+
+For an 8-character UDPRN key: `(16 + 8 + 8) × 1.5 ≈ 48 bytes`
+For a composite key `udprn\x00email` (8 + 1 + 20 = 29 chars): `(16 + 29 + 8) × 1.5 ≈ 79 bytes`
+
+These are estimates. The actual value should be verified by profiling:
+
+```go
+// measure actual map memory usage with runtime.ReadMemStats
+// before and after loading a known number of keys
+```
+
+**Step 2 — Estimate frequency map size**
+
+```
+map_size_bytes = distinct_key_count × bytes_per_entry
+map_size_mb    = map_size_bytes / (1024 × 1024)
+```
+
+Set `max_memory_mb` to ~80% of available RAM to leave headroom for the Go runtime, the second dataset's map, and OS overhead.
+
+**Step 3 — Choose strategy based on map size vs available RAM**
+
+```
+if map_size_mb < available_ram_mb × 0.8  →  in_memory
+if map_size_mb > available_ram_mb × 0.8  →  spill_to_disk
+if distinct_key_count > ~500M            →  pairwise_approximate
+  (spill_to_disk I/O cost exceeds value of exactness)
+```
+
+**Step 4 — Measure wall-clock time per connector type**
+
+Wall-clock time is dominated by different bottlenecks per connector — these must be benchmarked separately:
+
+| Connector      | Primary bottleneck              | What to measure                                      |
+| -------------- | ------------------------------- | ---------------------------------------------------- |
+| CSV (local)    | Disk read + CSV parse speed     | Rows/sec at varying file sizes                       |
+| REST API       | Network latency + rate limits   | Pages/sec, rows/page, API rate limit ceiling         |
+| Database       | Query execution + cursor fetch  | Rows/sec at varying `LIMIT` sizes and index coverage |
+| SFTP           | Network bandwidth + parse speed | Effective MB/sec throughput                          |
+
+For each connector, benchmark at representative dataset sizes (1M, 10M, 100M rows if feasible) and record rows/sec. Then:
+
+```
+estimated_wall_clock = distinct_key_count / rows_per_sec
+```
+
+Add `run.timeout_seconds` with a margin above this estimate (e.g. 2×) to allow for variance without cutting off legitimate runs.
+
+**Current implementation:** `in_memory` only. `spill_to_disk` is deferred. Benchmarks have not yet been run — the above is the measurement plan.
 
 ---
 
