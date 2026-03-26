@@ -167,11 +167,13 @@ datasets:
   - connector: csv
     path: data/A_f.csv
     page_size: 1000
+    max_error_rate: 0.05
   - connector: rest
     url: https://api.example.com/records
     auth_header: Authorization
     auth_token: Bearer xyz
     page_size: 1000
+    max_error_rate: 0.05
 
 key_columns: [udprn, email]
 

@@ -10,23 +10,25 @@ The program must accept two datasets as input. Each dataset contains a header ro
 - FR2: Each dataset source is consumed via a `KeyIterator` interface that streams batches of `[][]string` — one inner slice per row, one element per configured key column. The algorithm has no knowledge of the underlying source format.
 - FR3: The CSV connector implements `KeyIterator`, reads the file row by row without loading it fully into memory, and resolves the configured `--key-columns` to column indices from the header row.
 - FR4: The program handles datasets where key values may appear more than once (duplicates are valid input).
-- FR5: The program reports an error clearly if a source cannot be opened or a key cannot be read, and exits with a non-zero exit code.
+- FR5: Configuration errors (missing key column, source cannot be opened, missing config) are hard failures — the program exits with a non-zero exit code and a clear error message before processing any rows.
+- FR6: Data errors (malformed rows) are soft failures — the connector skips the row, records it in `ConnectorStats`, and continues. The algorithm checks the error rate after each batch and aborts if it exceeds the configured `max_error_rate` threshold (set per dataset in the YAML config).
+- FR7: Skipped row counts and error details are included in the final output so the caller is aware the results may be incomplete.
 
 ### Key Statistics
 
 The core output is a set of counts derived from the two datasets. These counts must be computed accurately unless an approximation strategy is explicitly chosen (see NFRs).
 
-- FR6: Report the total count of keys in each dataset (including duplicates).
-- FR7: Report the count of distinct keys in each dataset.
-- FR8: Report the total overlap — for a key appearing m times in dataset A and n times in dataset B, it contributes m×n to the total overlap, summed across all shared keys.
-- FR9: Report the distinct overlap — the count of keys that appear in both datasets (regardless of frequency).
+- FR8: Report the total count of keys in each dataset (including duplicates).
+- FR9: Report the count of distinct keys in each dataset.
+- FR10: Report the total overlap — for a key appearing m times in dataset A and n times in dataset B, it contributes m×n to the total overlap, summed across all shared keys.
+- FR11: Report the distinct overlap — the count of keys that appear in both datasets (regardless of frequency).
 
 ### Output
 
-- FR10: Results are written via a `ResultWriter` interface — the algorithm has no knowledge of the output destination.
-- FR11: The stdout writer formats results as a human-readable table with clearly labelled metrics.
-- FR12: The output destination is configurable at runtime via an `--output` flag (default: stdout).
-- FR13: The output labels each metric clearly so the caller can tell which number corresponds to which statistic.
+- FR12: Results are written via a `ResultWriter` interface — the algorithm has no knowledge of the output destination.
+- FR13: The stdout writer formats results as a human-readable table with clearly labelled metrics, including skipped row counts from each connector.
+- FR14: The output destination is configurable via the `output.writer` field in the YAML config (default: stdout).
+- FR15: The output labels each metric clearly so the caller can tell which number corresponds to which statistic.
 
 ---
 

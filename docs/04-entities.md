@@ -53,6 +53,27 @@ Represents the computed statistics from comparing two Datasets. This is the outp
 
 ---
 
+## ConnectorStats
+
+Accumulated statistics from a single connector run. Populated by the connector during iteration and readable at any point via `Stats()`. The algorithm checks this after each batch to enforce the `max_error_rate` threshold.
+
+| Field         | Type       | Notes                                                                 |
+| ------------- | ---------- | --------------------------------------------------------------------- |
+| `rows_read`   | uint64     | Total rows yielded by the connector, including skipped rows           |
+| `rows_skipped`| uint64     | Rows skipped due to malformed data                                    |
+| `errors`      | []RowError | Per-row error details (row number and reason) for skipped rows        |
+
+**RowError fields:**
+
+| Field       | Type   | Notes                                      |
+| ----------- | ------ | ------------------------------------------ |
+| `row_number`| uint64 | 1-based row number in the source           |
+| `reason`    | string | Human-readable description of the problem |
+
+**Error rate** = `rows_skipped / rows_read`. If this exceeds `max_error_rate` after a batch the algorithm aborts with a non-zero exit code.
+
+---
+
 ## ParseConfig
 
 Configuration supplied by the user at runtime, controlling how files are parsed.

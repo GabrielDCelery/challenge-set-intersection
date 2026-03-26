@@ -48,7 +48,30 @@ A CSV connector and a JSON connector receiving the same data return identical ou
 
 **Batching:** batch size is a connector implementation detail. A local CSV connector may return rows as fast as it can parse them. A REST connector returns one page per batch. The algorithm loops over whatever size batch it receives.
 
-**Current connector:** `CSVFileConnector` — opens a local CSV file, reads the header row to resolve `key_columns` to column indices, and returns batches of `[][]string`.
+**Interface:**
+
+```go
+type RowError struct {
+    RowNumber uint64
+    Reason    string
+}
+
+type ConnectorStats struct {
+    RowsRead    uint64
+    RowsSkipped uint64
+    Errors      []RowError
+}
+
+type KeyIterator interface {
+    NextBatch() (keys [][]string, done bool, err error)
+    Stats()     ConnectorStats
+    Close()     error
+}
+```
+
+`Stats()` can be called after each batch. The algorithm checks the error rate after every batch and aborts if it exceeds the configured `max_error_rate` threshold. `Close()` returns only an error so `defer connector.Close()` works as normal.
+
+**Current connector:** `CSVFileConnector` — opens a local CSV file, reads the header row to resolve `key_columns` to column indices, returns batches of `[][]string`, skips malformed rows and records them in `Stats()`.
 
 **Future connectors** (not in scope for this implementation but the interface accommodates them without algorithm changes):
 - `JSONConnector` — reads a JSON array or newline-delimited JSON, extracting configured fields per record
