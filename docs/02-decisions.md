@@ -4,30 +4,30 @@
 
 **Domain Model**
 
-| #   | Question                                                                    | Decision                                           |
-| --- | --------------------------------------------------------------------------- | -------------------------------------------------- |
-| D1  | How should duplicate keys be counted for total overlap (multiplicity rule)? | `m × n` (cartesian product) per shared key, summed |
-| D2  | Should keys be treated as strings or normalised integers?                   | Preserve as raw strings — leading zeros are significant |
-| D3  | How are multi-column CSV files handled — which column is the key?           | `--key-columns` required flag, comma-separated column names, no default |
+| #   | Question                                    | Decision                                      |
+| --- | ------------------------------------------- | --------------------------------------------- |
+| D1  | Total overlap multiplicity rule?            | `m × n` per shared key, summed               |
+| D2  | Keys as strings or integers?                | Raw strings — leading zeros preserved         |
+| D3  | Which column is the key?                    | `--key-columns` required, no default          |
 
 **Algorithm**
 
-| #   | Question                                                             | Decision |
-| --- | -------------------------------------------------------------------- | -------- |
-| D4  | In-memory hash map vs streaming/external approach for large files?   | Streaming via `KeyIterator` returning `[][]string` batches — never bulk load |
-| D5  | Exact counts vs probabilistic approximation (HyperLogLog / MinHash)? | Algorithm type choice; approximate algorithms expose a `precision` config parameter; output always includes error bounds |
-| D6  | Single-pass vs multi-pass over the files?                            | Single-pass per dataset |
-| D9  | Should the intersection algorithm be pluggable?                      | Yes — `IntersectionAlgorithm` interface; type and caching strategy are orthogonal |
-| D10 | Should connectors stream sequentially or in parallel?                | Parallel — one goroutine per connector, algorithm owns concurrency |
-| D11 | How should exact algorithms manage frequency map memory?             | Configurable cache block — `in_memory` or `spill_to_disk`; not applicable to approximate algorithms |
-| D12 | How should long-running processes be controlled?                     | Configurable `run.timeout_seconds`; resume deferred as a future extension |
+| #   | Question                                          | Decision                                                   |
+| --- | ------------------------------------------------- | ---------------------------------------------------------- |
+| D4  | Streaming vs bulk load?                           | Stream via `KeyIterator` (`[][]string` batches)            |
+| D5  | Exact vs probabilistic?                           | Algorithm type choice; `precision` param; output includes error bounds |
+| D6  | Single-pass vs multi-pass?                        | Single-pass per dataset                                    |
+| D9  | Pluggable algorithm?                              | `IntersectionAlgorithm` interface; type and cache orthogonal |
+| D10 | Sequential vs parallel connector streaming?       | Parallel — one goroutine per connector                     |
+| D11 | Frequency map memory for exact algorithms?        | `in_memory` or `spill_to_disk`; n/a for approximate       |
+| D12 | Long-running process control?                     | `run.timeout_seconds`; resume deferred                     |
 
 **System Boundaries**
 
-| #   | Question                                                   | Decision |
-| --- | ---------------------------------------------------------- | -------- |
-| D7  | CLI argument parsing — positional args vs flags?           | YAML config file via `--config`, with shorthand positional args for CSV convenience |
-| D8  | Output format — plain text table vs structured (JSON/CSV)? | `ResultWriter` interface — stdout table by default, pluggable |
+| #   | Question                        | Decision                                              |
+| --- | ------------------------------- | ----------------------------------------------------- |
+| D7  | Config mechanism?               | YAML via `--config`; shorthand for CSV convenience    |
+| D8  | Output format?                  | `ResultWriter` interface; stdout table by default     |
 
 ---
 
@@ -316,12 +316,12 @@ Rather than publishing fixed numbers (which would only be valid for one connecto
 
 Each entry in a `map[string]uint64` costs the following:
 
-| Component             | Size     | Explanation                                                                                   |
-| --------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| Go string header      | 16 bytes | Every Go string is a struct with two fields: a pointer to the string data (8 bytes) and an integer storing the string length (8 bytes). This is paid per entry regardless of the actual string content. |
-| String data           | L bytes  | The actual bytes of the key string. One byte per ASCII character. For `"30433784"` L=8. For a composite key `"30433784\x00alice@example.com"` L = 8 (udprn) + 1 (delimiter) + 20 (email) = 29. |
-| uint64 counter value  | 8 bytes  | The frequency count stored as the map value. Always 8 bytes regardless of the number stored. |
-| Go map bucket overhead| ~50%     | Go maps store entries in buckets of 8 slots each. Each bucket has metadata (overflow pointers, tophash bytes). When a bucket fills up Go allocates a new one. On average this adds ~50% to the raw entry cost. |
+| Component              | Size     | Explanation                                                                              |
+| ---------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| Go string header       | 16 bytes | Pointer + length field per string, paid per entry regardless of content                  |
+| String data            | L bytes  | Raw key bytes — one byte per ASCII char, includes `\x00` delimiters for composite keys  |
+| uint64 counter value   | 8 bytes  | Frequency count — fixed size regardless of value stored                                  |
+| Go map bucket overhead | ~50%     | Amortised cost of Go's bucket-based hash map internals (overflow pointers, tophash bytes)|
 
 **Formula:**
 
