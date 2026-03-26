@@ -7,7 +7,7 @@
 | #   | Question                                                                    | Decision                                           |
 | --- | --------------------------------------------------------------------------- | -------------------------------------------------- |
 | D1  | How should duplicate keys be counted for total overlap (multiplicity rule)? | `m × n` (cartesian product) per shared key, summed |
-| D2  | Should keys be treated as strings or normalised integers?                   | TBD                                                |
+| D2  | Should keys be treated as strings or normalised integers?                   | Preserve as raw strings — leading zeros are significant |
 | D3  | How are multi-column CSV files handled — which column is the key?           | `--key-columns` required flag, comma-separated column names, no default |
 
 **Algorithm**
@@ -73,17 +73,17 @@ m + n:       (1+1) + (1+2) + (2+1) + (2+3) = 2 + 3 + 3 + 5 = 13
 
 ## D2: Key normalisation — string vs integer
 
-**Decision:** TBD
+**Decision:** Keys are stored and compared as raw strings. Leading zeros are preserved. No numeric parsing is performed.
 
-**Context:** UDPRN values appear to be 8-digit numeric strings. The sample data contains values with leading zeros (e.g. `08034283`). Treating as integer would silently strip the leading zero and could cause incorrect joins if one file stores `08034283` and another stores `8034283`.
+**Context:** UDPRN is a Royal Mail identifier for a unique delivery point — it is an 8-digit code, not a number. `08034283` and `8034283` refer to different delivery points. Parsing as integer would silently strip the leading zero, corrupting the key and producing either a false non-match or a match against a completely different address. In a privacy-sensitive platform where accurate population overlap is the entire purpose, silent data corruption is unacceptable.
 
 **Alternatives considered:**
 
-- Store as raw string: preserves leading zeros, no normalisation ambiguity
-- Parse as integer: loses leading zeros unless re-padded; risky unless the spec guarantees consistent formatting
-- Normalise to zero-padded 8-char string: handles mixed formats but requires knowing the canonical width
+- Store as raw string — preserves leading zeros, no normalisation ambiguity, consistent with treating all key types as opaque strings; chosen
+- Parse as integer — loses leading zeros; would require re-padding to 8 digits to recover them, and only works if the canonical width is known and consistent across all sources; ruled out
+- Normalise to zero-padded 8-char string — handles mixed formats (e.g. one source omits leading zeros, another preserves them) but requires knowing the canonical width upfront and adds a transformation step that could introduce its own bugs; ruled out for now, revisit if mixed-format sources are encountered
 
-**Why:** TBD — needs confirmation on whether leading zeros are semantically significant (OQ2).
+**Why:** Keys are already treated as opaque strings throughout the system — the connector returns raw string values, the algorithm joins them with `\x00`, the frequency map uses them as-is. Preserving leading zeros requires no extra code. Parsing as integer requires extra code and introduces risk of silent data corruption.
 
 ---
 

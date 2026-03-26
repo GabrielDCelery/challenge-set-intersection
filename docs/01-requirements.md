@@ -75,7 +75,7 @@ The core output is a set of counts derived from the two datasets. These counts m
 ## Open Questions
 
 - OQ1: What is the maximum expected distinct key count in a single dataset, and what is the acceptable wall-clock time? These determine the appropriate caching strategy and timeout value. The sizing calculation and measurement plan is documented in D11 — once actual dataset sizes and connector benchmarks are known, the config can be set accordingly.
-- OQ2: UDPRN is defined as an 8-digit numeric string — should leading zeros be preserved (i.e. is "08034283" distinct from "8034283")? The sample data includes leading zeros.
+- OQ2: ~~Should leading zeros be preserved?~~ **Resolved** — keys are stored as raw strings; leading zeros are significant. `08034283` and `8034283` are distinct keys. See D2.
 - OQ3: ~~Are there any other key types beyond UDPRN?~~ **Resolved** — the program supports any key type via `--key-columns`; the algorithm treats all keys as opaque strings regardless of their source or meaning.
 - OQ4: ~~Is the output format fixed (stdout only)?~~ **Resolved** — output is abstracted behind a `ResultWriter` interface; stdout is the default writer, additional writers (file, JSON, API) can be added without algorithm changes.
 - OQ5: ~~Should the program handle CSV files with multiple columns?~~ **Resolved** — multi-column support required; key columns specified via `--key-columns` flag.
