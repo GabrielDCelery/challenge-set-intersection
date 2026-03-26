@@ -118,47 +118,12 @@ type ConnectorStats struct {
 
 ## RunConfig
 
-Parsed from the YAML config file. Drives construction of connectors, algorithm, and writer at startup. See D6 for the full config schema and alternatives considered.
+Parsed from the YAML config file at startup. Drives construction of connectors, algorithm, and writer. See D6 for the full schema, worked example, and alternatives considered.
 
-```go
-type RunConfig struct {
-    Datasets   []DatasetConfig  // one entry per input source; two required for pairwise algorithms
-    KeyColumns []string         // required — omitting is a hard error, no default
-    Algorithm  AlgorithmConfig
-    Output     OutputConfig
-    Run        RunControlConfig
-}
-
-type DatasetConfig struct {
-    Connector    string   // "csv" | "rest" | "database" | "sftp"
-    PageSize     int      // batch size per NextBatch() call
-    MaxErrorRate float64  // fraction of skippable rows before aborting
-    // CSV-specific
-    Path      string
-    HasHeader bool
-    // REST-specific
-    URL        string
-    AuthHeader string // HTTP header name for the auth token
-    AuthToken  string
-}
-
-type CacheConfig struct {
-    Strategy    string // "in_memory" | "spill_to_disk"
-    MaxMemoryMB int    // threshold before spilling
-    SpillDir    string // temp directory for spill files
-}
-
-type AlgorithmConfig struct {
-    Type      string       // "pairwise_exact" | "pairwise_approximate" | "nway_exact" | "nway_approximate"
-    Cache     *CacheConfig // exact algorithms only; nil for approximate
-    Precision int          // approximate algorithms only; HyperLogLog range 4–18, see D10
-}
-
-type OutputConfig struct {
-    Writer string // "stdout"; future: "json", "file", "rest"
-}
-
-type RunControlConfig struct {
-    TimeoutSeconds int // cancels all goroutines and exits non-zero if exceeded
-}
-```
+| Field         | Notes                                                             |
+| ------------- | ----------------------------------------------------------------- |
+| `datasets`    | One entry per input source. Two required for pairwise algorithms. |
+| `key_columns` | Required — omitting is a hard error, no default.                  |
+| `algorithm`   | Type and caching strategy. See D8, D10.                           |
+| `output`      | Writer type and destination. See D7.                              |
+| `run`         | Timeout and future resume settings. See D11.                      |
