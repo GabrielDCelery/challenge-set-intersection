@@ -8,7 +8,7 @@
 
 ### `encoding/csv` (stdlib) — **chosen**
 
-Handles quoted fields, embedded commas, and CRLF line endings correctly. No dependency. Stream-oriented — reads row by row without loading the full file. No automatic header detection — the first row is read manually and used to build the column-name-to-index map required by `--key-columns`.
+Handles quoted fields, embedded commas, and CRLF line endings correctly. No dependency. Stream-oriented — reads row by row without loading the full file. No automatic header detection — the first row is read manually and used to build the column-name-to-index map from the `key_columns` YAML config value.
 
 ---
 
@@ -16,7 +16,7 @@ Handles quoted fields, embedded commas, and CRLF line endings correctly. No depe
 
 ### `flag` (stdlib) — **chosen**
 
-Simple named flag parsing, no dependency. Sufficient for the two file path arguments and `--key-columns` flag. `cobra` would be overkill for a single-command tool.
+Simple named flag parsing, no dependency. Sufficient for the single `--config` flag. `cobra` would be overkill for a single-command tool.
 
 ---
 

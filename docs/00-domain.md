@@ -78,7 +78,7 @@ A key is only useful if it uniquely identifies an individual within a dataset. U
 
 If a key has lower cardinality — for example a postcode, where many people share the same value — then total overlap inflates dramatically even without any data quality problems, because multiple people in A legitimately match multiple people in B on that key. In that case total overlap loses its meaning as a data quality signal.
 
-This is why the key columns used for comparison must be explicitly specified by the caller (`--key-columns` flag) rather than assumed. The choice of key determines what the results mean.
+This is why the key columns used for comparison must be explicitly specified via `key_columns` in the YAML config rather than assumed. The choice of key determines what the results mean.
 
 ---
 

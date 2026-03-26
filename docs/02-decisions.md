@@ -8,7 +8,7 @@
 | --- | ------------------------------------------- | --------------------------------------------- |
 | D1  | Total overlap multiplicity rule?            | `m × n` per shared key, summed               |
 | D2  | Keys as strings or integers?                | Raw strings — leading zeros preserved         |
-| D3  | Which column is the key?                    | `--key-columns` required, no default          |
+| D3  | Which column is the key?                    | `key_columns` in YAML config — required, no default |
 
 **Algorithm**
 
@@ -87,20 +87,20 @@ m + n:       (1+1) + (1+2) + (2+1) + (2+3) = 2 + 3 + 3 + 5 = 13
 
 ---
 
-## D3: Multi-column CSV handling
+## D3: Multi-column key configuration
 
-**Decision:** Support one or more named key columns, specified at runtime via a `--key-columns` flag (comma-separated column names). When multiple columns are specified, their values are concatenated with a delimiter to form a composite key string. The rest of the algorithm is unchanged.
+**Decision:** One or more key columns are specified via `key_columns` in the YAML config (list of column names). When multiple columns are specified, their values are joined with `\x00` to form a composite key string. The config is mandatory — omitting `key_columns` is a hard error.
 
 **Context:** The current sample files are single-column CSVs with a `udprn` header, but the platform is designed to handle richer datasets where a row may be identified by multiple columns (e.g. `udprn`, `email`, `loyalty_card_id`). The solution must be configurable without code changes.
 
 **Alternatives considered:**
 
-- Always use the first column as the key — simple but not extensible; breaks on multi-column or reordered files
-- Allow a `--key-column` flag (single column name) — handles the current data but requires code change to support composite keys later
-- Allow `--key-columns` (comma-separated list) — handles both single and composite keys; chosen
+- Always use the first column as the key — simple but not extensible; breaks on multi-column or reordered files; silent incorrectness
+- Single column name config — handles the current data but requires code change to support composite keys later
+- `key_columns` list in YAML config — handles both single and composite keys; explicit; chosen
 - Require the key column to be named `udprn` — brittle, breaks for any other key type
 
-**Why:** Composite key support is a stated requirement of the platform context. Making it a required flag keeps the algorithm generic and forces the caller to be explicit — key extraction is a configurable pre-processing step, and the intersection logic operates on opaque strings regardless of how many source columns were combined. There is no default: omitting `--key-columns` is a hard error. A default (first column, all columns) risks silently wrong results if the file structure changes or contains non-key columns; in a privacy-sensitive platform, silent incorrectness is unacceptable.
+**Why:** `key_columns` is required with no default — the caller must be explicit about which columns identify a record. A default risks silently wrong results if the file structure changes or contains non-key columns. In a privacy-sensitive platform, silent incorrectness is unacceptable.
 
 ---
 
@@ -131,17 +131,7 @@ Each inner `[]string` is one row's key field values, one element per configured 
 
 ## D5: Exact vs approximate counts
 
-**Decision:** TBD
-
-**Context:** The spec explicitly raises the approximation question: "If approximations are used, ensure the accuracy of the values is appropriately represented." This is only relevant if D4 resolves to a probabilistic approach.
-
-**Alternatives considered:**
-
-- Exact counts via hash map or sort-merge: always correct, memory/time bounded
-- HyperLogLog for distinct counts: ~1–2% error, very low memory (a few KB regardless of cardinality)
-- MinHash / Jaccard estimation for overlap: estimates set similarity, not the raw overlap count directly
-
-**Why:** TBD — if files fit in memory, exact is preferable and simpler to explain. Approximation adds complexity and requires communicating error bounds in output.
+**Decision:** Resolved via D9 — exact vs approximate is a property of the algorithm type, not a system-level flag. `pairwise_exact` and `nway_exact` produce exact counts. `pairwise_approximate` and `nway_approximate` use HyperLogLog and MinHash with a configurable `precision` parameter. Output always includes error bounds when an approximate algorithm is used. See D9 for full detail.
 
 ---
 
@@ -162,7 +152,7 @@ Each inner `[]string` is one row's key field values, one element per configured 
 
 ## D7: Configuration via YAML config file
 
-**Decision:** Dataset sources, key columns, and output destination are specified via a YAML config file passed with `--config`. A shorthand positional form is also supported for the common case of two local CSV files.
+**Decision:** Dataset sources, key columns, and output destination are specified via a YAML config file passed with `--config`. The config file is mandatory — there is no shorthand or default form.
 
 **Full config form:**
 
@@ -201,19 +191,12 @@ run:
   timeout_seconds: 3600
 ```
 
-**Shorthand form (CSV only):**
-
-```sh
-program --key-columns udprn A_f.csv B_f.csv
-```
-
-Internally the shorthand constructs an equivalent CSV config — it is a convenience wrapper, not a separate code path.
-
 **Alternatives considered:**
 
-- Positional arguments only — works for CSV file paths but cannot express connector type, auth, pagination config, or output destination without an explosion of flags
+- Positional arguments only — works for CSV file paths but cannot express connector type, auth, pagination config, or output destination; does not scale
 - Named flags only (`--file-a`, `--file-b`, `--key-columns`, `--output`) — manageable for CSV but does not scale to REST or database connectors which need arbitrarily many parameters
-- YAML config file — scales to any connector type and keeps all configuration in one place; chosen
+- Shorthand convenience form — weakens the design by introducing implicit behaviour; ruled out for consistency with the principle of explicit configuration
+- YAML config file — scales to any connector type, explicit, self-documenting; chosen
 
 **Why:** Different connectors have fundamentally different configuration shapes. A flag-based interface cannot accommodate this without becoming unwieldy. A config file makes each connector's parameters explicit and self-documenting, and mirrors how real data pipeline tools are configured.
 
