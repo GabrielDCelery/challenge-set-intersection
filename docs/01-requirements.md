@@ -4,7 +4,7 @@
 
 ### Data Ingestion
 
-The program must accept two datasets as input. Each dataset contains a header row followed by rows of key values. The program should not assume a fixed source — in the current implementation datasets are provided as local CSV files, but the ingestion layer must be designed as a pluggable connector so that future sources (REST API, database, SFTP) can be added without changing the algorithm.
+The program must accept two or more datasets as input. Each dataset contains a header row followed by rows of key values. The program should not assume a fixed source or a fixed number of datasets — in the current implementation two datasets are provided as local CSV files, but the ingestion layer must be designed as a pluggable connector so that future sources (REST API, database, SFTP, JSON) can be added without changing the algorithm, and the algorithm layer must support N datasets without structural changes.
 
 - FR1: Dataset sources, key columns, and output destination are specified via a YAML config file passed with `--config`. A shorthand positional form (`program --key-columns udprn A_f.csv B_f.csv`) is supported as a convenience for two local CSV files and constructs an equivalent config internally.
 - FR2: Each dataset source is consumed via a `KeyIterator` interface that streams batches of `[][]string` — one inner slice per row, one element per configured key column. The algorithm has no knowledge of the underlying source format.
