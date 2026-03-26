@@ -50,12 +50,22 @@ This design extends naturally to N datasets — fan out to N goroutines, wait fo
 
 Memory usage is O(distinct keys across all datasets). Raw rows are never stored — each row is consumed, joined into a frequency map key, and discarded.
 
-| Scenario                                        | Memory required                           | Approach                  |
-| ----------------------------------------------- | ----------------------------------------- | ------------------------- |
-| Small datasets (< 1M distinct keys)             | < ~50MB per frequency map                 | `in_memory`               |
-| Medium datasets (1M–50M distinct keys)          | ~500MB–5GB per map depending on key width | `in_memory` if RAM allows |
-| Very large datasets (> 50M distinct keys)       | Exceeds typical RAM                       | `spill_to_disk`           |
-| Extreme scale or approximate results acceptable | Kilobytes regardless of cardinality       | `pairwise_approximate`    |
+Each entry in a `map[string]uint64` costs approximately:
+
+```
+bytes_per_entry ≈ (16 + L + 8) × 1.5
+```
+
+where L is the key length in bytes (sum of all `key_columns` field lengths plus one `\x00` delimiter per join). Derived from D10.
+
+| Distinct keys per dataset | L=8 (e.g. single UDPRN) | L=29 (e.g. UDPRN + email) | Approach                  |
+| ------------------------- | ------------------------ | -------------------------- | ------------------------- |
+| 1M                        | ~48MB                    | ~79MB                      | `in_memory`               |
+| 10M                       | ~480MB                   | ~790MB                     | `in_memory` if RAM allows |
+| 50M                       | ~2.4GB                   | ~3.9GB                     | `spill_to_disk`           |
+| 500M+                     | ~24GB+                   | ~39GB+                     | `pairwise_approximate`    |
+
+These are estimates from the formula — actual usage should be verified with `runtime.ReadMemStats` at representative dataset sizes before setting `max_memory_mb` in config. See D10 for the full measurement plan.
 
 Exact algorithms build frequency maps — the `cache` config controls where they live (`in_memory` or `spill_to_disk`). Approximate algorithms use HyperLogLog and MinHash directly — no frequency map, no cache config applies. See D8, D10.
 
