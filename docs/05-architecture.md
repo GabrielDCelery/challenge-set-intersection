@@ -59,11 +59,11 @@ bytes_per_entry ≈ (16 + L + 8) × 1.5
 where L is the key length in bytes (sum of all `key_columns` field lengths plus one `\x00` delimiter per join). Derived from D10.
 
 | Distinct keys per dataset | L=8 (e.g. single UDPRN) | L=29 (e.g. UDPRN + email) | Approach                  |
-| ------------------------- | ------------------------ | -------------------------- | ------------------------- |
-| 1M                        | ~48MB                    | ~79MB                      | `in_memory`               |
-| 10M                       | ~480MB                   | ~790MB                     | `in_memory` if RAM allows |
-| 50M                       | ~2.4GB                   | ~3.9GB                     | `spill_to_disk`           |
-| 500M+                     | ~24GB+                   | ~39GB+                     | `pairwise_approximate`    |
+| ------------------------- | ----------------------- | ------------------------- | ------------------------- |
+| 1M                        | ~48MB                   | ~79MB                     | `in_memory`               |
+| 10M                       | ~480MB                  | ~790MB                    | `in_memory` if RAM allows |
+| 50M                       | ~2.4GB                  | ~3.9GB                    | `spill_to_disk`           |
+| 500M+                     | ~24GB+                  | ~39GB+                    | `pairwise_approximate`    |
 
 These are estimates from the formula — actual usage should be verified with `runtime.ReadMemStats` at representative dataset sizes before setting `max_memory_mb` in config. See D10 for the full measurement plan.
 
@@ -84,7 +84,7 @@ Exact algorithms build frequency maps — the `cache` config controls where they
 
 ## Privacy Boundary
 
-The input files contain only anonymised UDPRN keys — not names, addresses, or any other identifiable information. The tool never logs, stores, or transmits individual key values. Output contains only aggregate counts. See `08-security.md` for the full data classification.
+Input datasets contain only the key columns specified in config — the tool has no knowledge of what those keys represent or what other data the source organisation holds. Individual key values are never logged, stored, or transmitted. Output contains only aggregate counts. This holds regardless of connector type or key column choice. See `08-security.md` for the full data classification.
 
 ---
 
