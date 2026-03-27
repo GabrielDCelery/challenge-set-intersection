@@ -61,6 +61,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to compute intersection")
 	}
 
+	//TODO: type asserton will need fixing, fine for the exercise
 	for _, stats := range result.(types.PairwiseResult).ConnectorStats {
 		log.Info().
 			Str("source", stats.Source).
