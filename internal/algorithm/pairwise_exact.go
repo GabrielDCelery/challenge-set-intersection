@@ -9,6 +9,32 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type frequencyMap map[string]uint64
+
+func (f frequencyMap) totalCount() uint64 {
+	var total uint64
+	for _, count := range f {
+		total += count
+	}
+	return total
+}
+
+func (f frequencyMap) distinctCount() uint64 {
+	return uint64(len(f))
+}
+
+func (f frequencyMap) overlap(other frequencyMap) (distinctOverlap uint64, totalOverlap uint64) {
+	for key, countA := range f {
+		countB, exists := other[key]
+		if !exists {
+			continue
+		}
+		distinctOverlap++
+		totalOverlap += countA * countB
+	}
+	return distinctOverlap, totalOverlap
+}
+
 type PairwiseExact struct{}
 
 func NewPairwiseExact() *PairwiseExact {
@@ -17,30 +43,23 @@ func NewPairwiseExact() *PairwiseExact {
 
 func (p *PairwiseExact) Compute(ctx context.Context, datasets []types.KeyIterator) (types.IntersectionResult, error) {
 	if len(datasets) != 2 {
-		return nil, fmt.Errorf("pairwise extract requires exactly two datasets, got %d", len(datasets))
+		return nil, fmt.Errorf("pairwise exact requires exactly two datasets, got %d", len(datasets))
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	connectorStats := make([]types.ConnectorStats, 2)
-	frequencyMaps := []map[string]uint64{make(map[string]uint64), make(map[string]uint64)}
+	freqMaps := []frequencyMap{{}, {}}
+	connectorStats := []types.ConnectorStats{{}, {}}
 
 	for datasetIdx, dataset := range datasets {
 		g.Go(func() error {
-			for {
-				batch, done, err := dataset.NextBatch(ctx)
-				if err != nil {
-					return fmt.Errorf("algorithm failed to retrieve next batch: %w", err)
-				}
-				for _, keys := range batch {
-					uniqueKey := strings.Join(keys, "\x00")
-					frequencyMaps[datasetIdx][uniqueKey]++
-				}
-				if done {
-					connectorStats[datasetIdx] = dataset.Stats()
-					return nil
-				}
+			freqMap, stats, err := streamDataset(ctx, dataset)
+			if err != nil {
+				return err
 			}
+			freqMaps[datasetIdx] = freqMap
+			connectorStats[datasetIdx] = stats
+			return nil
 		})
 	}
 
@@ -48,12 +67,20 @@ func (p *PairwiseExact) Compute(ctx context.Context, datasets []types.KeyIterato
 		return nil, err
 	}
 
-	distinctOverlap, totalOverlap := calculateDistinctAndTotalOverlap(frequencyMaps)
+	distinctOverlap, totalOverlap := freqMaps[0].overlap(freqMaps[1])
 
 	result := types.PairwiseResult{
 		Datasets: []types.PairwiseDatasetStats{
-			createDatasetStats(connectorStats[0].Source, frequencyMaps[0]),
-			createDatasetStats(connectorStats[1].Source, frequencyMaps[1]),
+			{
+				Source:        connectorStats[0].Source,
+				TotalCount:    freqMaps[0].totalCount(),
+				DistinctCount: freqMaps[0].distinctCount(),
+			},
+			{
+				Source:        connectorStats[1].Source,
+				TotalCount:    freqMaps[1].totalCount(),
+				DistinctCount: freqMaps[1].distinctCount(),
+			},
 		},
 		ConnectorStats:  connectorStats,
 		DistinctOverlap: distinctOverlap,
@@ -64,35 +91,20 @@ func (p *PairwiseExact) Compute(ctx context.Context, datasets []types.KeyIterato
 	return result, nil
 }
 
-func createDatasetStats(source string, frequencyMap map[string]uint64) types.PairwiseDatasetStats {
-	return types.PairwiseDatasetStats{
-		Source:        source,
-		TotalCount:    calculateTotal(frequencyMap),
-		DistinctCount: calculateDistinct(frequencyMap),
-	}
-}
+const keyDelimiter = "\x00"
 
-func calculateTotal(frequencyMap map[string]uint64) uint64 {
-	var total uint64 = 0
-	for _, count := range frequencyMap {
-		total += count
-	}
-	return total
-}
-
-func calculateDistinct(frequencyMap map[string]uint64) uint64 {
-	return uint64(len(frequencyMap))
-}
-
-func calculateDistinctAndTotalOverlap(frequencyMaps []map[string]uint64) (uint64, uint64) {
-	var distinctOverlap, totalOverlap uint64
-	for key, countA := range frequencyMaps[0] {
-		countB, exists := frequencyMaps[1][key]
-		if !exists {
-			continue
+func streamDataset(ctx context.Context, iter types.KeyIterator) (frequencyMap, types.ConnectorStats, error) {
+	freqMap := frequencyMap{}
+	for {
+		batch, done, err := iter.NextBatch(ctx)
+		if err != nil {
+			return nil, iter.Stats(), fmt.Errorf("failed to retrieve next batch: %w", err)
 		}
-		distinctOverlap++
-		totalOverlap += countA * countB
+		for _, keys := range batch {
+			freqMap[strings.Join(keys, keyDelimiter)]++
+		}
+		if done {
+			return freqMap, iter.Stats(), nil
+		}
 	}
-	return distinctOverlap, totalOverlap
 }
