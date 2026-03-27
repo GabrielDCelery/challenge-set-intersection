@@ -12,24 +12,33 @@ All diagnostic output goes to stderr. Stdout carries only the final result. A cl
 
 ### What is logged in the initial implementation
 
-**On start:**
+**Startup (before any layer runs):**
+
 - Config file path loaded
 - Source identifiers (file paths, URLs) and configured `key_columns`
+- Algorithm type and caching strategy selected
 
-**Per connector, on completion:**
-- Rows read
-- Rows skipped and the reasons (from `ConnectorStats`)
-- Wall-clock time for that connector
+**Connector layer (per source):**
 
-**On error:**
-- The specific failure reason and which source or config field caused it
+- On completion: rows read, rows skipped, reasons for skipped rows, wall-clock time
+- On soft failure: row number, reason, running skip rate
+- On hard failure: source identifier, failure reason — program exits after this log line
+- On cancellation (timeout or error in another goroutine): how far the connector got, partial `ConnectorStats`
 
-**On timeout:**
-- How far each connector got before cancellation
-- Partial `ConnectorStats` for each connector flushed to stderr
+**Algorithm layer:**
 
-**On success:**
-- No additional stderr output — the result on stdout is the signal
+- On completion: wall-clock time for `Compute()`
+- On `max_error_rate` exceeded: which source breached the threshold, final `ConnectorStats` for all sources
+
+**Writer layer:**
+
+- On completion: wall-clock time for `Write()`, output destination
+- On failure: destination identifier, failure reason
+
+**Job level:**
+
+- On success: total job duration — no other stderr output
+- On any failure: total job duration, failure category
 
 ### What is not logged
 
@@ -46,18 +55,18 @@ This is a batch tool — there are no runtime metrics to collect separately. The
 
 **Connector layer** — one entry per source, since connectors run in parallel and a single aggregate hides which source is the bottleneck:
 
-| Signal                    | Why it matters                                                           |
-| ------------------------- | ------------------------------------------------------------------------ |
-| Wall-clock time per source | Pinpoints which source is slow when connectors run in parallel          |
-| Rows read per source      | Confirms the expected volume was processed                               |
-| Rows skipped per source   | High skip rate on a specific source is actionable and source-attributable |
+| Signal                     | Why it matters                                                            |
+| -------------------------- | ------------------------------------------------------------------------- |
+| Wall-clock time per source | Pinpoints which source is slow when connectors run in parallel            |
+| Rows read per source       | Confirms the expected volume was processed                                |
+| Rows skipped per source    | High skip rate on a specific source is actionable and source-attributable |
 
 **Algorithm layer:**
 
-| Signal              | Why it matters                                                         |
-| ------------------- | ---------------------------------------------------------------------- |
-| Algorithm duration  | Isolates CPU/memory cost of frequency map construction and comparison  |
-| Peak memory usage   | Validates whether `in_memory` strategy is viable at the target scale — measured via `runtime.ReadMemStats` during development |
+| Signal             | Why it matters                                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Algorithm duration | Isolates CPU/memory cost of frequency map construction and comparison                                                         |
+| Peak memory usage  | Validates whether `in_memory` strategy is viable at the target scale — measured via `runtime.ReadMemStats` during development |
 
 **Writer layer:**
 
@@ -67,9 +76,9 @@ This is a batch tool — there are no runtime metrics to collect separately. The
 
 **Job level:**
 
-| Signal             | Why it matters                                          |
-| ------------------ | ------------------------------------------------------- |
-| Total job duration | Primary SLA signal for the orchestrating system         |
+| Signal             | Why it matters                                  |
+| ------------------ | ----------------------------------------------- |
+| Total job duration | Primary SLA signal for the orchestrating system |
 
 In production, total job duration and outcome are the signals the orchestrating system monitors. Per-layer and per-source timings are available in the structured log output for diagnosis when the SLA is breached.
 
