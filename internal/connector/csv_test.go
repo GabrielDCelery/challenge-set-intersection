@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +22,7 @@ func TestLeadingZerosPreserved(t *testing.T) {
 	path := writeFixture(t, "udprn\n08034283\n00000001\n")
 
 	// When the connector reads the file
-	it, err := NewCsvKeyIterator(path, []string{"udprn"}, 10, 0)
+	it, err := NewCsvKeyIterator(path, []string{"udprn"}, 10, 0, zerolog.Nop())
 	require.NoError(t, err)
 	defer it.Close()
 
@@ -37,7 +38,7 @@ func TestColumnResolutionByName(t *testing.T) {
 	path := writeFixture(t, "name,udprn\nJohn,08034283\n")
 
 	// When the connector reads the file
-	it, err := NewCsvKeyIterator(path, []string{"udprn"}, 10, 0)
+	it, err := NewCsvKeyIterator(path, []string{"udprn"}, 10, 0, zerolog.Nop())
 	require.NoError(t, err)
 	defer it.Close()
 
@@ -53,7 +54,7 @@ func TestMultipleColumnResolution(t *testing.T) {
 	path := writeFixture(t, "name,udprn,email\nJohn,08034283,john@example.com")
 
 	// When the connector reads the file
-	it, err := NewCsvKeyIterator(path, []string{"name", "email"}, 10, 0)
+	it, err := NewCsvKeyIterator(path, []string{"name", "email"}, 10, 0, zerolog.Nop())
 	require.NoError(t, err)
 	defer it.Close()
 

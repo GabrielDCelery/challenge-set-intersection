@@ -23,6 +23,19 @@ make docker-run
 
 No Go installation required — Docker is sufficient to build and run.
 
+Results are written to stdout, diagnostic logs (skipped rows, timing) to stderr. To separate them:
+
+```sh
+# results only
+make docker-run 2>/dev/null
+
+# logs only
+make docker-run 1>/dev/null
+
+# run logs to file
+make docker-run 2> debug.log
+```
+
 ## Development
 
 ```sh

@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/GabrielDCelery/challenge-set-intersection/internal/types"
+	"github.com/rs/zerolog"
 )
 
 // CsvKeyIterator streams key fields from a CSV file one batch at a time
@@ -21,9 +22,10 @@ type CsvKeyIterator struct {
 	pageSize     int
 	maxErrorRate float64
 	done         bool
+	log          zerolog.Logger
 }
 
-func NewCsvKeyIterator(path string, keyColumns []string, pageSize int, maxErrorRate float64) (*CsvKeyIterator, error) {
+func NewCsvKeyIterator(path string, keyColumns []string, pageSize int, maxErrorRate float64, log zerolog.Logger) (*CsvKeyIterator, error) {
 	// NOTE: word-readable file check omitted for now
 	// In production it would reject files with permissions looser than 600
 	if _, err := os.Stat(path); err != nil {
@@ -68,6 +70,7 @@ func NewCsvKeyIterator(path string, keyColumns []string, pageSize int, maxErrorR
 		pageSize:     pageSize,
 		maxErrorRate: maxErrorRate,
 		stats:        types.ConnectorStats{Source: path},
+		log:          log,
 	}, nil
 }
 
@@ -128,6 +131,11 @@ func (c *CsvKeyIterator) appendSkipError(err error) {
 		RowNumber: c.stats.RowsRead,
 		Reason:    fmt.Sprintf("csv parse error: %v", err),
 	})
+	c.log.Warn().
+		Uint64("row", c.stats.RowsRead).
+		Str("source", c.source).
+		Str("reason", err.Error()).
+		Msg("row skipped")
 }
 
 func (c *CsvKeyIterator) Stats() types.ConnectorStats {
