@@ -1,99 +1,89 @@
 # Deployment
 
-How this program gets built and distributed. This is a CLI tool — "deployment" means producing a runnable binary or script and documenting how to build and run it.
+How this program gets built and distributed. In its current form this is a CLI tool submitted as a challenge — but the design accounts for production deployment as a pipeline job.
 
 ---
 
 ## Deployment Target
 
-**Hosting:** Local machine / developer workstation. No server, no container registry, no cloud infrastructure.
+**Current:** A compiled Go binary run locally against the provided `data/` CSV files. The submission includes source code and a Makefile with `build`, `test`, and `run` targets.
 
-**Distribution:** A compiled binary (if using Go or TypeScript compiled to a binary), or a script with a documented dependency setup step (if using Python or Node.js).
-
-**Why this target fits:** The spec asks for "source code and instructions on how to build and run" — this is a challenge submission, not a production service.
+**Production:** A job within a data pipeline or orchestrator. The binary is the same — what changes is how it is invoked, how config is supplied, and how secrets are injected. No code changes are required to move from local to production.
 
 ---
 
 ## Environments
 
-| Environment | Purpose                        | Notable differences               |
-| ----------- | ------------------------------ | --------------------------------- |
-| local       | Development and submission run | Uses the provided data/ CSV files |
-
-No staging or production environments exist for this tool.
+| Environment | Purpose                                      |
+| ----------- | -------------------------------------------- |
+| local       | Development, testing, and challenge submission |
+| production  | Pipeline job — config and secrets injected by orchestrator |
 
 ---
 
 ## CI/CD
 
-**Decision:** TBD
+A GitHub Actions workflow runs on every push:
 
-For a challenge submission, a basic GitHub Actions workflow to run tests on push is sufficient. It validates that the build and test steps work on a clean machine.
+1. `go build` — verifies the binary compiles
+2. `go test ./...` — runs the full test suite
+3. `govulncheck` — scans dependencies for known vulnerabilities
 
-**Suggested pipeline steps:** install dependencies → build → test → (optionally) lint
+The Makefile targets (`build`, `test`, `run`) mirror the CI steps so local and CI behaviour are identical.
 
 ---
 
 ## Containerisation
 
-**Decision:** TBD
+Deferred — not required for the challenge submission. A Dockerfile would be useful to guarantee the reviewer can run the program without installing Go. If added:
 
-A Dockerfile is useful here because it guarantees the reviewer can run the program without installing the language runtime on their machine.
+- Multi-stage build: build stage compiles the binary, runtime stage is minimal (`scratch` or `alpine`)
+- The config file is mounted at runtime — not baked into the image
+- The `data/` directory is mounted as a volume
 
-If provided:
-
-- Use a multi-stage build: build stage compiles the binary, runtime stage is a minimal image (e.g. `scratch` or `alpine`).
-- The container should accept file paths as arguments — the data/ directory should be mounted as a volume, not baked into the image.
-
-Example invocation with Docker:
-
-```
-docker build -t set-intersection .
-docker run --rm -v $(pwd)/data:/data set-intersection /data/A_f.csv /data/B_f.csv
-```
-
----
-
-## Infrastructure Provisioning
-
-Not applicable — no cloud resources to provision.
-
----
-
-## Data Migrations
-
-Not applicable — no persistent schema.
+If containerised, `trivy` should be added to CI to scan the image for OS-level vulnerabilities. See `13-tooling.md`.
 
 ---
 
 ## Network Access
 
-Not applicable — no network communication.
+REST connectors make outbound HTTPS calls to configured API endpoints. No inbound network access. HTTPS is required — plaintext HTTP must not be used. See `08-security.md`.
 
 ---
 
 ## Secrets and Environment Variables
 
-| Env Var       | Description | Required | Default |
-| ------------- | ----------- | -------- | ------- |
-| None required | —           | —        | —       |
+Secrets are injected via environment variables and referenced in the YAML config using `${VAR}` syntax — expanded at parse time via `os.Getenv`. See D13 in `02-decisions.md`.
+
+| Variable         | Description                          | Required                          |
+| ---------------- | ------------------------------------ | --------------------------------- |
+| `${VAR_NAME}`    | Any variable referenced in config    | Required if referenced in config  |
+
+Example — REST connector auth token:
+
+```yaml
+datasets:
+  - connector: rest
+    auth_token: ${REST_AUTH_TOKEN}
+```
+
+In production, variables are injected by the orchestrator or a secrets manager (AWS Secrets Manager, HashiCorp Vault, Kubernetes secrets). Locally, they are set in the shell before running.
 
 ---
 
 ## Build and Run Instructions
 
-These should appear in the README. At minimum:
+These appear in the README. Summary:
 
-1. How to install dependencies (if any)
-2. How to build the binary (if compiled)
-3. How to run against the provided data files
-4. How to run the tests
-
-**Open:** What language and toolchain is being used? The build instructions depend on this. See `13-tooling.md`.
+```sh
+make build          # compiles the binary
+make test           # runs the test suite
+make run            # runs against data/A_f.csv and data/B_f.csv with config/default.yaml
+govulncheck ./...   # scans dependencies for vulnerabilities
+```
 
 ---
 
 ## Open Questions
 
-- Should the program be distributed as a single compiled binary (no runtime dependency) or as a script that requires the language runtime installed?
-- Is a Makefile or Taskfile warranted to simplify build and test commands for the reviewer?
+- Should the binary be distributed as a pre-built release artifact (e.g. GitHub Release), or is building from source sufficient for the challenge submission?
