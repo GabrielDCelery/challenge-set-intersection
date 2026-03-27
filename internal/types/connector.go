@@ -9,8 +9,8 @@ type KeyIterator interface {
 }
 
 type RowError struct {
-	RowNumbern uint64
-	Reason     string
+	RowNumber uint64
+	Reason    string
 }
 
 type ConnectorStats struct {
