@@ -75,24 +75,33 @@ type ResultWriter interface {
 
 ## IntersectionResult
 
-The value that crosses from `IntersectionAlgorithm` to `ResultWriter`. Holds only aggregate counts — never individual key values. No PII or identifiable data ever enters this struct.
+The interface that crosses from `IntersectionAlgorithm` to `ResultWriter`. Holds only aggregate counts — never individual key values. No PII or identifiable data ever enters an implementation.
 
 ```go
-type DatasetStats struct {
+type IntersectionResult interface{}
+```
+
+Different algorithm families produce different concrete result types. The `ResultWriter` type-asserts to the concrete type it knows how to format.
+
+**Current implementation:** `PairwiseResult` — used by all pairwise algorithms (exact and approximate).
+
+```go
+type PairwiseDatasetStats struct {
     Source        string  // human-readable identifier (e.g. file path, URL)
     TotalCount    uint64  // total rows including duplicates
     DistinctCount uint64  // unique keys only
 }
 
-type IntersectionResult struct {
-    Datasets        []DatasetStats // one entry per input source, N-dataset safe
-    DistinctOverlap uint64         // keys appearing in all datasets, regardless of frequency
-    TotalOverlap    uint64         // sum of count_in_A × count_in_B across shared keys
-    ErrorBoundPct   float64        // 0 = exact; non-zero = approximate, e.g. 0.8 for ±0.8%
+type PairwiseResult struct {
+    Datasets        []PairwiseDatasetStats // one entry per input source
+    ConnectorStats  []ConnectorStats       // one entry per input source
+    DistinctOverlap uint64                 // keys appearing in both datasets
+    TotalOverlap    uint64                 // sum of count_in_A × count_in_B across shared keys
+    ErrorBoundPct   float64                // 0 = exact; non-zero = approximate, e.g. 0.8 for ±0.8%
 }
 ```
 
-The `ResultWriter` iterates `Datasets` to print per-source rows, then prints the overlap figures. `ErrorBoundPct` is included in output only when non-zero (D8).
+The `ResultWriter` iterates `Datasets` to print per-source rows, then prints the overlap figures. `ConnectorStats` provides skipped row counts per source. `ErrorBoundPct` is included in output only when non-zero (D8).
 
 ---
 
@@ -107,7 +116,7 @@ type RowError struct {
 }
 
 type ConnectorStats struct {
-    Source      string     // matches DatasetStats.Source for traceability
+    Source      string     // matches PairwiseDatasetStats.Source for traceability
     RowsRead    uint64     // total rows seen, including skipped
     RowsSkipped uint64     // rows skipped due to malformed data
     Errors      []RowError // per-row detail for skipped rows
