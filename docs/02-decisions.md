@@ -24,10 +24,11 @@
 
 **System Boundaries**
 
-| #   | Question          | Decision                                          |
-| --- | ----------------- | ------------------------------------------------- |
-| D6  | Config mechanism? | YAML via `--config`; mandatory, no shorthand      |
-| D7  | Output format?    | `ResultWriter` interface; stdout table by default |
+| #   | Question                      | Decision                                                        |
+| --- | ----------------------------- | --------------------------------------------------------------- |
+| D6  | Config mechanism?             | YAML via `--config`; mandatory, no shorthand                    |
+| D7  | Output format?                | `ResultWriter` interface; stdout table by default               |
+| D13 | Secret injection into config? | Environment variable expansion — `${VAR}` resolved via `os.Getenv` |
 
 ---
 
@@ -378,3 +379,28 @@ The `KeyIterator` interface is designed to accommodate resume in future — a `C
 - Soft failure — chosen; consistent with the handling of other malformed rows (FR6); caller is informed via `ConnectorStats`
 
 **Why:** Treating an empty key field as a soft failure is consistent with the existing error handling model. The connector is responsible for deciding what constitutes a valid row — an incomplete key is not valid, but it is not a reason to abort the entire run.
+
+---
+
+## D13: Secret injection into config
+
+**Decision:** Secrets in the YAML config (e.g. `auth_token` for REST connectors) are specified as environment variable references using `${VAR}` syntax. At config parse time the program expands these references via `os.Getenv`. The actual secret lives in the environment, injected by the orchestrator or a secrets manager.
+
+**Example:**
+
+```yaml
+datasets:
+  - connector: rest
+    url: https://api.example.com/records
+    auth_header: Authorization
+    auth_token: ${REST_AUTH_TOKEN}
+```
+
+**Alternatives considered:**
+
+- Plaintext in config file — simple but unacceptable for production; secrets committed to version control or stored on disk in plaintext
+- Separate secrets config file — avoids plaintext in the main config but adds complexity: two files to manage, two parse paths, no standard format
+- CLI flag for secrets — contradicts the mandatory config file design; also exposes secrets in process list (`ps aux`)
+- Environment variable expansion in config — chosen; secrets stay out of the config file, the orchestrator or secrets manager controls injection, no code changes needed to rotate a secret
+
+**Why:** The config file may be stored in version control or on a shared filesystem — it must never contain secrets directly. Environment variable expansion is the standard pattern for CLI tools running in pipelines and is compatible with all common secrets managers (AWS Secrets Manager, HashiCorp Vault, Kubernetes secrets) without any integration code.
