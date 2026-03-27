@@ -55,6 +55,23 @@ stdlib `testing` with table-driven tests covers all scenarios. `testify` (`asser
 
 ---
 
+## Supply Chain Verification
+
+### `govulncheck` — **chosen**
+
+Go's official vulnerability scanner (`golang.org/x/vuln/cmd/govulncheck`). Checks dependencies against the Go vulnerability database maintained by the Go team. Zero configuration, runs in CI alongside tests. Catches known vulnerabilities in both direct and transitive dependencies.
+
+**Alternatives considered:**
+
+- `nancy` (Sonatype) — scans `go.sum` against OSS Index; requires a third-party service dependency with no clear advantage over `govulncheck` for a pure Go project; ruled out
+- `trivy` (Aqua Security) — broader scope: container images, filesystems, IaC; out of scope until deployment uses containers; revisit if a Dockerfile is added
+
+### `dependabot` — **chosen**
+
+GitHub's automated dependency update PRs with vulnerability alerts. Zero configuration for GitHub-hosted repos — enables automatic PRs when a dependency has a known vulnerability or a new version is available. Complements `govulncheck` in CI by keeping dependencies current between scans.
+
+---
+
 ## Task Running
 
 ### Makefile — **chosen**
