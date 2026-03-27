@@ -1,6 +1,23 @@
 # Testing
 
-Tests are organised around the three layer boundaries. Each layer has a single responsibility — tests exist to protect that responsibility, not just to achieve coverage.
+Tests are organised around startup, the three layer boundaries, and end-to-end. Each has a single responsibility — tests exist to protect that responsibility, not just to achieve coverage.
+
+---
+
+## Startup
+
+Startup is where the config is parsed, environment variables are expanded, and the three layers are constructed and wired together. Failures here are always hard failures — if startup does not complete cleanly, no data is processed. The most dangerous startup failure is a silent misconfiguration: a connector constructed with the wrong parameters, or an environment variable silently falling back to an empty string instead of failing loudly.
+
+These tests exist to ensure that what gets constructed matches what was configured, and that every invalid or incomplete configuration is caught before the first row is read.
+
+- Valid config → correct algorithm type, connectors, and writer constructed
+- `${VAR}` environment variable references expanded correctly at parse time
+- Unset environment variable referenced in config → hard error, non-zero exit
+- `key_columns` missing from config → hard error, non-zero exit
+- Invalid algorithm type → hard error, non-zero exit
+- Invalid caching strategy → hard error, non-zero exit
+- Input file is world-readable → hard error, non-zero exit before any rows are read
+- Config file is malformed YAML → hard error, non-zero exit
 
 ---
 
