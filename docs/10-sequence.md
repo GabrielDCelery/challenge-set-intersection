@@ -4,7 +4,17 @@ How to split the project into deliverable slices and where to start. Each slice 
 
 ---
 
-## Slice 1 — KeyIterator (CSV Connector)
+## Slice 1 — Project Skeleton
+
+**What:** Initialise the repo, set up the basic Makefile (`build`, `test`), and wire up GitHub Actions to run `go build` and `go test` on every push. Nothing works yet — this is scaffolding only.
+
+**Why here:** CI from day one means every subsequent slice has a green build to work against. The pipeline should never be in a broken state that gets fixed at the end.
+
+**Done when:** A `go build` passes. `go test ./...` runs (and passes with no tests). GitHub Actions reports green on push.
+
+---
+
+## Slice 2 — KeyIterator (CSV Connector)
 
 **What:** Implement the CSV connector as a KeyIterator. Read a CSV file, resolve columns by name from the header row, return batches of keys as raw strings, and report ConnectorStats.
 
@@ -14,7 +24,7 @@ How to split the project into deliverable slices and where to start. Each slice 
 
 ---
 
-## Slice 2 — Core Algorithm
+## Slice 3 — Core Algorithm
 
 **What:** Implement the frequency map approach. Feed two KeyIterators into the algorithm, build frequency maps, compute all four counts: total count per dataset, distinct count per dataset, distinct overlap, total overlap.
 
@@ -26,7 +36,7 @@ How to split the project into deliverable slices and where to start. Each slice 
 
 ---
 
-## Slice 3 — ResultWriter
+## Slice 4 — ResultWriter
 
 **What:** Implement the stdout writer. Format and output all six fields from IntersectionResult: total count per dataset, distinct count per dataset, distinct overlap, total overlap, skipped row counts from ConnectorStats, and ErrorBoundPct when non-zero.
 
@@ -36,7 +46,7 @@ How to split the project into deliverable slices and where to start. Each slice 
 
 ---
 
-## Slice 4 — Config and Wiring
+## Slice 5 — Config and Wiring
 
 **What:** Replace hardcoded paths with a YAML config file parsed via `--config`. Wire the three layers together through config: connector construction, algorithm selection, writer configuration. Expand `${VAR}` environment variable references at parse time.
 
@@ -46,7 +56,7 @@ How to split the project into deliverable slices and where to start. Each slice 
 
 ---
 
-## Slice 5 — Hardening and Tests
+## Slice 6 — Hardening and Tests
 
 **What:** Add all failure modes at each layer boundary and complete the test suite across all layers. Soft fails at the connector: empty key fields, malformed rows, fewer fields than expected — recorded in ConnectorStats, not fatal. Hard fails: world-readable input files, missing columns, file not found — rejected before any rows are read. Config file permissions checked at startup. End-to-end tests run the binary against real fixture files.
 
@@ -56,7 +66,7 @@ How to split the project into deliverable slices and where to start. Each slice 
 
 ---
 
-## Slice 6 — Large File Strategies
+## Slice 7 — Large File Strategies
 
 **What:** Implement `spill_to_disk` for datasets that exceed available RAM, and `pairwise_approximate` using HyperLogLog and MinHash for datasets where exact computation is not practical. Strategy selected via `algorithm.caching_strategy` in config.
 
@@ -68,11 +78,11 @@ How to split the project into deliverable slices and where to start. Each slice 
 
 ---
 
-## Slice 7 — Packaging
+## Slice 8 — Packaging
 
-**What:** Finalise the Makefile (`build`, `test`, `docker-build`, `docker-run`), the Dockerfile, and the README. CI is set up incrementally from Slice 1 onwards — this slice finalises it with Docker build and trivy scanning.
+**What:** Finalise the Dockerfile, add `docker-build` and `docker-run` Makefile targets, extend CI with Docker build and trivy scanning, and write the README.
 
-**Why here:** Packaging is incremental — the Makefile and basic CI exist from early on. This slice finalises and hardens everything so the submission is complete.
+**Why here:** The Makefile and CI skeleton exist from Slice 1 — this slice finalises them. Documentation written last reflects the actual implementation.
 
 **Done when:** A reviewer with only Docker installed can clone the repo, run `make docker-build && make docker-run`, and see correct output against the provided data files following only the README.
 
@@ -80,7 +90,7 @@ How to split the project into deliverable slices and where to start. Each slice 
 
 ## What to Defer
 
-- **REST connector:** defer until after Slice 1 — the CSV connector validates the KeyIterator interface. REST is a second implementation of the same interface.
+- **REST connector:** defer until after Slice 2 — the CSV connector validates the KeyIterator interface. REST is a second implementation of the same interface.
 - **N-way intersection (more than two datasets):** defer unless explicitly confirmed in scope — the current design is N-dataset safe but the challenge specifies two.
 - **Horizontal scaling:** out of scope — requires dedicated research and design. See `09-deployment.md`.
 - **Progress indicators / verbose mode:** defer until large file strategies are implemented — only useful for large-file runs.
