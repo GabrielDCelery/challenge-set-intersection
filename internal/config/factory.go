@@ -17,11 +17,11 @@ func BuildConnectors(cfg *Config, log zerolog.Logger) ([]types.KeyIterator, erro
 		case "csv":
 			path, ok := datasetCfg.Params["path"]
 			if !ok {
-				return nil, fmt.Errorf("csv connctor missing required param: path")
+				return nil, fmt.Errorf("csv connector missing required param: path")
 			}
 			it, err := connector.NewCsvKeyIterator(path, cfg.KeyColumns, datasetCfg.PageSize, datasetCfg.MaxErrorRate, log)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create csv conector for %s: %w", path, err)
+				return nil, fmt.Errorf("failed to create csv connector for %s: %w", path, err)
 			}
 			iterators = append(iterators, it)
 		default:
