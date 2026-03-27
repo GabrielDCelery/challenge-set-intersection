@@ -16,12 +16,16 @@ Place your input CSV files in the `data/` directory:
 - `data/A_f.csv` — dataset A (single-column CSV with a `udprn` header)
 - `data/B_f.csv` — dataset B (single-column CSV with a `udprn` header)
 
+A sample config is provided at [`config/default.yaml`](config/default.yaml). It points to the mounted data paths and uses the `pairwise_exact` algorithm with stdout output. Edit it to change key columns, algorithm type, or error rate thresholds.
+
 Then build and run:
 
 ```sh
 make docker-build
 make docker-run
 ```
+
+`docker-run` mounts `./data` at `/data` and `./config` at `/config` inside the container, and passes `--config /config/default.yaml` to the binary.
 
 No Go installation required — Docker is sufficient to build and run.
 
