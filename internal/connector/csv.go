@@ -11,6 +11,7 @@ import (
 	"github.com/GabrielDCelery/challenge-set-intersection/internal/types"
 )
 
+// CsvKeyIterator streams key fields from a CSV file one batch at a time
 type CsvKeyIterator struct {
 	file         *os.File
 	reader       *csv.Reader
