@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	iterA, err := connector.NewCsvKeyIterator("data/A_f.csv", []string{"udprn"}, 1000, 0)
+	iterA, err := connector.NewCsvKeyIterator("/data/A_f.csv", []string{"udprn"}, 1000, 0)
 
 	if err != nil {
 		log.Fatalf("failed to create iterator A: %v", err)
@@ -19,7 +19,7 @@ func main() {
 
 	defer iterA.Close()
 
-	iterB, err := connector.NewCsvKeyIterator("data/B_f.csv", []string{"udprn"}, 1000, 0)
+	iterB, err := connector.NewCsvKeyIterator("/data/B_f.csv", []string{"udprn"}, 1000, 0)
 
 	if err != nil {
 		log.Fatalf("failed to create iterator B: %v", err)
