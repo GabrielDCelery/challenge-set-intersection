@@ -1,71 +1,88 @@
 # Observability
 
-Strategy for understanding program behaviour and diagnosing problems. This is a CLI tool — there is no production service to monitor. Observability here means making a single invocation debuggable and its progress visible for large inputs.
+Strategy for understanding program behaviour and diagnosing problems. This is a CLI tool in its current form — but in production it would run as a job within a pipeline or orchestrator. Observability decisions are made with both contexts in mind.
 
 ---
 
 ## Logging
 
-### Strategy
+All diagnostic output goes to stderr. Stdout carries only the final result. A clean run produces no stderr output — only the result on stdout. This makes it safe to pipe stdout to another tool without filtering noise.
 
-This tool does not need structured logging to a log aggregator. What it needs is:
+`zerolog` is used for all diagnostic output — it writes structured JSON to any `io.Writer`, so redirecting from stderr to a log aggregator in production requires no code changes. See `13-tooling.md` for the full rationale.
 
-- **stderr for diagnostic output** — progress indicators, warnings, and errors go to stderr so they do not pollute the stdout result.
-- **stdout for results only** — the four computed counts, cleanly formatted.
-- **Verbosity flag** — a `-v` or `--verbose` flag to enable diagnostic output (rows read, time elapsed, memory used). Off by default.
+### What is logged in the initial implementation
 
-Diagnostic messages worth emitting at verbose level:
+**On start:**
+- Config file path loaded
+- Source identifiers (file paths, URLs) and configured `key_columns`
 
-- Number of rows read per file after parsing completes.
-- Wall-clock time for each phase (file A parse, file B parse, intersection compute).
-- If approximation is used: the estimated error bound alongside each count.
+**Per connector, on completion:**
+- Rows read
+- Rows skipped and the reasons (from `ConnectorStats`)
+- Wall-clock time for that connector
 
-### Tradeoffs
+**On error:**
+- The specific failure reason and which source or config field caused it
 
-- **Too little:** silent failure is hard to debug — a malformed file that skips all rows would produce zeros with no explanation.
-- **Too much:** noise on stderr for a simple tool is annoying. Default should be quiet.
+**On timeout:**
+- How far each connector got before cancellation
+- Partial `ConnectorStats` for each connector flushed to stderr
 
-### Open Questions
+**On success:**
+- No additional stderr output — the result on stdout is the signal
 
-- Should skipped/malformed rows (e.g. blank lines, rows with wrong column count) be counted and reported as a warning, or silently ignored?
-- If a file is very large and processing is slow, should the program emit a progress indicator (rows processed / estimated total)?
+### What is not logged
+
+- Individual key values — never, under any circumstances (privacy boundary)
+- Per-row debug output — too verbose for normal operation; use `runtime.ReadMemStats` profiling during development instead
+
+**Deferred:** Progress indicators (rows processed / estimated total) are not implemented in this iteration. The timeout mechanism (`run.timeout_seconds`) is the primary safeguard for long-running processes.
 
 ---
 
 ## Metrics
 
-This is a batch CLI tool — there are no runtime metrics to collect. The output of the program is itself the "metric."
+This is a batch tool — there are no runtime metrics to collect separately. The structured log output from zerolog already captures the signals needed to understand a run:
 
-If performance profiling is needed during development:
+**Connector layer** — one entry per source, since connectors run in parallel and a single aggregate hides which source is the bottleneck:
 
-| What to measure           | Why it matters                                          |
-| ------------------------- | ------------------------------------------------------- |
-| Wall-clock time per phase | Identifies whether bottleneck is I/O or computation     |
-| Peak memory usage         | Validates whether in-memory approach is viable at scale |
-| Rows parsed per second    | Baseline for estimating runtime on larger files         |
+| Signal                    | Why it matters                                                           |
+| ------------------------- | ------------------------------------------------------------------------ |
+| Wall-clock time per source | Pinpoints which source is slow when connectors run in parallel          |
+| Rows read per source      | Confirms the expected volume was processed                               |
+| Rows skipped per source   | High skip rate on a specific source is actionable and source-attributable |
 
-These are development-time concerns, not production metrics.
+**Algorithm layer:**
+
+| Signal              | Why it matters                                                         |
+| ------------------- | ---------------------------------------------------------------------- |
+| Algorithm duration  | Isolates CPU/memory cost of frequency map construction and comparison  |
+| Peak memory usage   | Validates whether `in_memory` strategy is viable at the target scale — measured via `runtime.ReadMemStats` during development |
+
+**Writer layer:**
+
+| Signal          | Why it matters                                                              |
+| --------------- | --------------------------------------------------------------------------- |
+| Writer duration | Expected to be negligible — a spike indicates an output destination problem |
+
+**Job level:**
+
+| Signal             | Why it matters                                          |
+| ------------------ | ------------------------------------------------------- |
+| Total job duration | Primary SLA signal for the orchestrating system         |
+
+In production, total job duration and outcome are the signals the orchestrating system monitors. Per-layer and per-source timings are available in the structured log output for diagnosis when the SLA is breached.
 
 ---
 
-## Alerting
+## Traces
 
-Not applicable — this is a CLI tool, not a running service.
+Not implemented in this iteration — the tool is a single process with no distributed components to correlate across. However, in production this tool is one step in a larger data pipeline. If that pipeline uses distributed tracing, this tool should participate so that a slow or failed run can be correlated back to the broader pipeline context — which upstream job produced the input, which downstream job is waiting, how long this step took relative to others.
 
----
+The building blocks are already in place:
 
-## Tracing
+- `zerolog` emits structured JSON fields — a `trace_id` and `span_id` can be added to every log line with no structural changes
+- A trace context (e.g. W3C `traceparent`) could be passed in via an environment variable or config field and propagated through the logger
+- The `context.Context` already flows through `NextBatch` and `Compute` — a span could be derived from it at each layer boundary without touching the algorithm or connector logic
 
-Not applicable — single process, synchronous, no distributed components.
-
----
-
-## Exit Codes
-
-The program should use standard exit codes to allow scripting and CI integration:
-
-| Exit code | Meaning                                        |
-| --------- | ---------------------------------------------- |
-| 0         | Success — all four counts computed and printed |
-| 1         | General error — file not found, parse failure  |
-| 2         | Usage error — invalid arguments                |
+When distributed tracing is introduced to the surrounding pipeline, adding participation here is a configuration and wiring change, not an architectural one.

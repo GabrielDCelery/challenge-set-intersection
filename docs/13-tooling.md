@@ -34,6 +34,19 @@ Estimates the fraction of shared elements between two sets without materialising
 
 ---
 
+## Logging
+
+### `zerolog` (`github.com/rs/zerolog`) — **chosen**
+
+Zero-allocation structured JSON logger. Writes to any `io.Writer` — stderr by default, trivially redirected to a log aggregator in production without code changes. Simple chainable API with no boilerplate for a single-binary tool.
+
+**Alternatives considered:**
+
+- `zap` (Uber) — excellent for high-throughput services with complex logging pipelines, but over-engineered for this use case. Requires more configuration, more boilerplate, and is designed around use cases we don't have (sampling, named loggers, multiple sinks).
+- `slog` (stdlib, Go 1.21+) — no dependency, structured JSON output, sufficient for basic use. Ruled out because zerolog's zero-allocation guarantee and `io.Writer` flexibility make the production migration path cleaner with minimal added cost.
+
+---
+
 ## Testing
 
 ### `testing` (stdlib) + `testify` — **chosen**
