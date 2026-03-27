@@ -110,10 +110,4 @@ The sizing formula in D10 gives a concrete basis for choosing the strategy at de
 
 ### Horizontal Scaling
 
-Horizontal scaling is not implemented in this version. The current design processes one pair of datasets in a single container.
-
-The natural extension is a partition-and-merge approach. Each key is hashed to a partition, and each partition is assigned to a worker. The invariant that makes this correct is that consistent hashing guarantees equal keys always land in the same partition — so each worker sees all occurrences of the keys it owns, from both datasets, and can build a complete frequency map for its slice of the keyspace independently. Overlap is then computed per partition and summed. No worker needs to communicate with any other during computation.
-
-This is compatible with the current design. `KeyIterator` already streams in batches — a partitioned worker would consume the same interface, routing each incoming batch to the appropriate partition worker rather than processing it directly. `IntersectionResult` carries per-dataset counts and an overlap figure that are additive across partitions, so the fan-in step is a straightforward sum. The algorithm interfaces do not need to change; what changes is the orchestration layer — a fan-out stage that distributes rows, a parallel computation stage, and a fan-in stage that aggregates partial results.
-
-In practice this maps onto any job graph orchestrator: AWS Batch array jobs, Kubernetes Jobs with a coordinator, or a Spark/Flink pipeline stage. The current single-container design is the degenerate case — one partition, one worker.
+Horizontal scaling is out of scope for this version and would require dedicated research and design before implementation.
