@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// frequencyMap tracks how many times each composite key appears in a dataset
 type frequencyMap map[string]uint64
 
 func (f frequencyMap) totalCount() uint64 {
@@ -35,12 +36,14 @@ func (f frequencyMap) overlap(other frequencyMap) (distinctOverlap uint64, total
 	return distinctOverlap, totalOverlap
 }
 
+// PairwiseExact computes exact set intersection statistics for exactly two datasets
 type PairwiseExact struct{}
 
 func NewPairwiseExact() *PairwiseExact {
 	return &PairwiseExact{}
 }
 
+// Compute streams both datasets in parallel and returns exact intersection statistic
 func (p *PairwiseExact) Compute(ctx context.Context, datasets []types.KeyIterator) (types.IntersectionResult, error) {
 	if len(datasets) != 2 {
 		return nil, fmt.Errorf("pairwise exact requires exactly two datasets, got %d", len(datasets))
