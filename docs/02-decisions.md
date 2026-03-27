@@ -4,11 +4,11 @@
 
 **Domain Model**
 
-| #   | Question                         | Decision                                            |
-| --- | -------------------------------- | --------------------------------------------------- |
-| D1  | Total overlap multiplicity rule? | `m × n` per shared key, summed                      |
-| D2  | Keys as strings or integers?     | Raw strings — leading zeros preserved               |
-| D3  | Which column is the key?         | `key_columns` in YAML config — required, no default |
+| #   | Question                         | Decision                                                 |
+| --- | -------------------------------- | -------------------------------------------------------- |
+| D1  | Total overlap multiplicity rule? | `m × n` per shared key, summed                           |
+| D2  | Keys as strings or integers?     | Raw strings — leading zeros preserved                    |
+| D3  | Which column is the key?         | `key_columns` in YAML config — required, no default      |
 | D12 | Empty key field in a row?        | Soft failure — row skipped, recorded in `ConnectorStats` |
 
 **Algorithm**
@@ -24,10 +24,10 @@
 
 **System Boundaries**
 
-| #   | Question                      | Decision                                                        |
-| --- | ----------------------------- | --------------------------------------------------------------- |
-| D6  | Config mechanism?             | YAML via `--config`; mandatory, no shorthand                    |
-| D7  | Output format?                | `ResultWriter` interface; stdout table by default               |
+| #   | Question                      | Decision                                                           |
+| --- | ----------------------------- | ------------------------------------------------------------------ |
+| D6  | Config mechanism?             | YAML via `--config`; mandatory, no shorthand                       |
+| D7  | Output format?                | `ResultWriter` interface; stdout table by default                  |
 | D13 | Secret injection into config? | Environment variable expansion — `${VAR}` resolved via `os.Getenv` |
 
 ---
@@ -154,15 +154,17 @@ Each inner `[]string` is one row's key field values, one element per configured 
 ```yaml
 datasets:
   - connector: csv
-    path: data/A_f.csv
     page_size: 1000
     max_error_rate: 0.05
+    params:
+      path: /data/A_f.csv
   - connector: rest
-    url: https://api.example.com/records
-    auth_header: Authorization
-    auth_token: Bearer xyz
     page_size: 1000
     max_error_rate: 0.05
+    params:
+      url: https://api.example.com/records
+      auth_header: Authorization
+      auth_token: ${REST_AUTH_TOKEN}
 
 key_columns: [udprn, email]
 
@@ -270,10 +272,11 @@ algorithm:
 ```yaml
 algorithm:
   type: pairwise_approximate
-  precision: 14 # HyperLogLog precision — range 4–18, higher = more accurate, more memory
-               # error rate ≈ 1.04 / √(2^precision); memory ≈ 2^precision × 8 bytes (verify against axiomhq/hyperloglog)
-               # precision 10 ≈ 3.25% error, ~8KB
-               # precision 18 ≈ 0.20% error, ~2MB
+  precision:
+    14 # HyperLogLog precision — range 4–18, higher = more accurate, more memory
+    # error rate ≈ 1.04 / √(2^precision); memory ≈ 2^precision × 8 bytes (verify against axiomhq/hyperloglog)
+    # precision 10 ≈ 3.25% error, ~8KB
+    # precision 18 ≈ 0.20% error, ~2MB
   # no cache block — approximate algorithms do not build frequency maps
 ```
 

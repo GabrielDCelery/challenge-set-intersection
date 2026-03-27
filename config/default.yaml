@@ -1,0 +1,22 @@
+datasets:
+  - connector: csv
+    page_size: 1000
+    max_error_rate: 0.05
+    params:
+      path: /data/A_f.csv
+  - connector: csv
+    page_size: 1000
+    max_error_rate: 0.05
+    params:
+      path: /data/B_f.csv
+
+key_columns: [udprn]
+
+algorithm:
+  type: pairwise_exact
+
+output:
+  writer: stdout
+
+run:
+  timeout_seconds: 3600
