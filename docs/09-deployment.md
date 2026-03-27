@@ -102,11 +102,11 @@ The tool scales vertically by changing the algorithm and caching strategy in con
 
 `in_memory` is the default. Both frequency maps are held in RAM simultaneously. For typical datasets — millions of keys, key lengths in the tens of bytes — this fits comfortably in a single container's memory allocation. See D10 in `02-decisions.md` for the sizing formula and approximate thresholds.
 
-`spill_to_disk` handles datasets that exceed available RAM. Instead of holding the full frequency map in memory, the algorithm streams chunks to a temporary directory on disk and merges them at comparison time. The trade-off is I/O throughput for memory headroom. The result is still exact. This is the right choice when the data is large but the runtime environment has fast local storage.
+`spill_to_disk` handles datasets that exceed available RAM. Instead of holding the full frequency map in memory, the algorithm streams chunks to a temporary directory on disk and merges them at comparison time. The trade-off is I/O throughput for memory headroom. The result is still exact. This is the right choice when the data is large but the runtime environment has fast local storage. **Deferred to Slice 7 — not implemented in the current version.**
 
-`pairwise_approximate` is the escape hatch for datasets that are both too large for RAM and too large for spill-to-disk to be practical. HyperLogLog and MinHash replace exact counting with probabilistic estimation — the output includes an `ErrorBoundPct` field to signal to the caller that the figures are estimates. This is appropriate when a ±1–2% error margin is acceptable, which is usually true for the aggregate counts this tool produces.
+`pairwise_approximate` is the escape hatch for datasets that are both too large for RAM and too large for spill-to-disk to be practical. HyperLogLog and MinHash replace exact counting with probabilistic estimation — the output includes an `ErrorBoundPct` field to signal to the caller that the figures are estimates. This is appropriate when a ±1–2% error margin is acceptable, which is usually true for the aggregate counts this tool produces. **Deferred to Slice 7 — not implemented in the current version.**
 
-The sizing formula in D10 gives a concrete basis for choosing the strategy at deployment time. The config change is a one-line edit to `algorithm.caching_strategy` — the rest of the pipeline is unaffected.
+The sizing formula in D10 gives a concrete basis for choosing the strategy at deployment time. The config change is a one-line edit to `algorithm.caching_strategy` — the rest of the pipeline is unaffected. The current implementation supports `in_memory` only.
 
 ### Horizontal Scaling
 

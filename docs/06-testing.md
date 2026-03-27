@@ -17,6 +17,7 @@ These tests exist to ensure that what gets constructed matches what was configur
 - Invalid algorithm type → hard error, non-zero exit
 - Invalid caching strategy → hard error, non-zero exit
 - Input file is world-readable → hard error, non-zero exit before any rows are read
+- Config file has permissions looser than `600` → hard error, non-zero exit before any rows are read
 - Config file is malformed YAML → hard error, non-zero exit
 
 ---
