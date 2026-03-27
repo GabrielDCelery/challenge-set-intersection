@@ -7,13 +7,13 @@ A CLI tool that compares two CSV datasets of anonymised UDPRN keys (Unique Deliv
 - `docs/01-requirements.md` — functional and non-functional requirements, design clarifications, open questions
 - `docs/02-decisions.md` — reasoning behind design choices and alternatives considered
 - `docs/03-data-consumers.md` — who needs what view of which data and why
-- `docs/04-entities.md` — entity definitions and field reasoning (intermediate step before schema)
+- `docs/04-entities.md` — first-class interface definitions (KeyIterator, IntersectionAlgorithm, ResultWriter) and supporting types
 - `docs/05-architecture.md` — infrastructure, scalability, and privacy boundary decisions
 - `docs/06-testing.md` — what to test, testing strategy, and key scenarios
-- `docs/07-observability.md` — logging, exit codes, and diagnostic output strategy
+- `docs/07-observability.md` — logging, metrics, and tracing strategy
 - `docs/08-security.md` — privacy constraints, data classification, and what must never appear in output
 - `docs/09-deployment.md` — build and distribution strategy, Dockerfile considerations
-- `docs/10-sequence.md` — walking skeleton, development slices, and sequencing reasoning
+- `docs/10-sequence.md` — development slices, sequencing reasoning, and what to defer
 - `docs/13-tooling.md` — recommended packages and tools by concern with benefits and tradeoffs
 
 ## Data
@@ -25,4 +25,4 @@ Input CSV files are in the `data/` directory:
 
 ## Core Algorithm Note
 
-Total overlap is defined as: for each key appearing in both files, contribute `min(count_in_A, count_in_B)` to the total. This is not a cartesian product and not a simple sum. See `docs/02-decisions.md` (D1) for the full reasoning.
+Total overlap is defined as: for each key appearing in both files, contribute `m × n` (count in A multiplied by count in B) to the total. This is not `min(m, n)` and not a simple sum. See `docs/02-decisions.md` (D1) for the full reasoning.
