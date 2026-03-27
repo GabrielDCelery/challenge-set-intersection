@@ -6,17 +6,17 @@ How this program gets built and distributed. In its current form this is a CLI t
 
 ## Deployment Target
 
-**Current:** A compiled Go binary run locally against the provided `data/` CSV files. The submission includes source code and a Makefile with `build`, `test`, and `run` targets.
+**Current:** A Docker image built from source. The submission includes a Dockerfile, source code, and a Makefile with `build`, `test`, `docker-build`, and `docker-run` targets. The reviewer does not need Go installed — Docker is sufficient to build and run.
 
-**Production:** A job within a data pipeline or orchestrator. The binary is the same — what changes is how it is invoked, how config is supplied, and how secrets are injected. No code changes are required to move from local to production.
+**Production:** The same Docker image run as a job within a data pipeline or orchestrator. What changes is how the image is invoked, how the config is supplied, and how secrets are injected. No code changes are required to move from local to production.
 
 ---
 
 ## Environments
 
-| Environment | Purpose                                      |
-| ----------- | -------------------------------------------- |
-| local       | Development, testing, and challenge submission |
+| Environment | Purpose                                                    |
+| ----------- | ---------------------------------------------------------- |
+| local       | Development, testing, and challenge submission             |
 | production  | Pipeline job — config and secrets injected by orchestrator |
 
 ---
@@ -25,23 +25,31 @@ How this program gets built and distributed. In its current form this is a CLI t
 
 A GitHub Actions workflow runs on every push:
 
-1. `go build` — verifies the binary compiles
-2. `go test ./...` — runs the full test suite
-3. `govulncheck` — scans dependencies for known vulnerabilities
+1. `go test ./...` — runs the full test suite
+2. `govulncheck` — scans dependencies for known vulnerabilities
+3. `docker build` — builds the multi-stage image
+4. `trivy image` — scans the built image for OS-level vulnerabilities
 
-The Makefile targets (`build`, `test`, `run`) mirror the CI steps so local and CI behaviour are identical.
+The Makefile targets (`docker-build`, `docker-run`, `test`) mirror the CI steps so local and CI behaviour are identical.
 
 ---
 
 ## Containerisation
 
-Deferred — not required for the challenge submission. A Dockerfile would be useful to guarantee the reviewer can run the program without installing Go. If added:
+A Dockerfile is included. Multi-stage build — a build stage compiles the Go binary, a minimal runtime stage (`scratch` or `alpine`) packages it. No Go toolchain in the final image.
 
-- Multi-stage build: build stage compiles the binary, runtime stage is minimal (`scratch` or `alpine`)
-- The config file is mounted at runtime — not baked into the image
-- The `data/` directory is mounted as a volume
+```sh
+docker build -t set-intersection .
+docker run --rm \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/config.yaml:/config.yaml \
+  -e REST_AUTH_TOKEN=... \
+  set-intersection --config /config.yaml
+```
 
-If containerised, `trivy` should be added to CI to scan the image for OS-level vulnerabilities. See `13-tooling.md`.
+The config file and data directory are mounted at runtime — nothing sensitive is baked into the image. Secrets are injected via environment variables (see D13).
+
+`trivy` is added to CI to scan the image for OS-level vulnerabilities. See `13-tooling.md`.
 
 ---
 
@@ -55,9 +63,9 @@ REST connectors make outbound HTTPS calls to configured API endpoints. No inboun
 
 Secrets are injected via environment variables and referenced in the YAML config using `${VAR}` syntax — expanded at parse time via `os.Getenv`. See D13 in `02-decisions.md`.
 
-| Variable         | Description                          | Required                          |
-| ---------------- | ------------------------------------ | --------------------------------- |
-| `${VAR_NAME}`    | Any variable referenced in config    | Required if referenced in config  |
+| Variable      | Description                       | Required                         |
+| ------------- | --------------------------------- | -------------------------------- |
+| `${VAR_NAME}` | Any variable referenced in config | Required if referenced in config |
 
 Example — REST connector auth token:
 
@@ -76,14 +84,17 @@ In production, variables are injected by the orchestrator or a secrets manager (
 These appear in the README. Summary:
 
 ```sh
-make build          # compiles the binary
-make test           # runs the test suite
-make run            # runs against data/A_f.csv and data/B_f.csv with config/default.yaml
-govulncheck ./...   # scans dependencies for vulnerabilities
+make docker-build   # builds the Docker image
+make docker-run     # runs the image against data/A_f.csv and data/B_f.csv with config/default.yaml
+make test           # runs the test suite (requires Go installed)
+make build          # compiles the binary locally (requires Go installed)
+govulncheck ./...   # scans dependencies for vulnerabilities (requires Go installed)
 ```
+
+Docker is the primary path — the reviewer does not need Go installed. The `build` and `test` targets are provided for contributors who have Go available locally.
 
 ---
 
 ## Open Questions
 
-- Should the binary be distributed as a pre-built release artifact (e.g. GitHub Release), or is building from source sufficient for the challenge submission?
+None.

@@ -64,7 +64,7 @@ Go's official vulnerability scanner (`golang.org/x/vuln/cmd/govulncheck`). Check
 **Alternatives considered:**
 
 - `nancy` (Sonatype) — scans `go.sum` against OSS Index; requires a third-party service dependency with no clear advantage over `govulncheck` for a pure Go project; ruled out
-- `trivy` (Aqua Security) — broader scope: container images, filesystems, IaC; out of scope until deployment uses containers; revisit if a Dockerfile is added
+- `trivy` (Aqua Security) — broader scope: container images, filesystems, IaC; added to CI to scan the Docker image for OS-level vulnerabilities once the Dockerfile is in place
 
 ### `dependabot` — **chosen**
 
@@ -72,8 +72,20 @@ GitHub's automated dependency update PRs with vulnerability alerts. Zero configu
 
 ---
 
+## Containerisation
+
+### Dockerfile — **chosen**
+
+Multi-stage build: a build stage compiles the Go binary, a minimal runtime stage (`scratch` or `alpine`) packages it. The resulting image has no Go toolchain dependency and is safe to distribute. The config file and data directory are mounted at runtime — nothing sensitive is baked into the image.
+
+In CI, `trivy` should be added to scan the image for OS-level vulnerabilities once a Dockerfile is in place. See Supply Chain Verification above.
+
+---
+
 ## Task Running
 
 ### Makefile — **chosen**
 
-Universal — available on any Unix-like system without installation. Familiar to reviewers. Targets: `build`, `test`, `run`.
+Universal — available on any Unix-like system without installation. Familiar to any reviewer. Targets: `build`, `test`, `run`, `docker-build`, `docker-run`.
+
+**Production alternative:** `mise` — pins Go version and tool versions in a single `mise.toml`, solving the "works on my machine" problem for a team repo. Not chosen for the challenge submission because it requires installation and adds friction for the reviewer. Worth adopting if this moves to a team repository.
