@@ -47,3 +47,19 @@ func TestColumnResolutionByName(t *testing.T) {
 	require.True(t, done)
 	require.Equal(t, [][]string{{"08034283"}}, batch)
 }
+
+func TestMultipleColumnResolution(t *testing.T) {
+	// Given we want to extract multiple columns
+	path := writeFixture(t, "name,udprn,email\nJohn,08034283,john@example.com")
+
+	// When the connector reads the file
+	it, err := NewCsvKeyIterator(path, []string{"name", "email"}, 10, 0)
+	require.NoError(t, err)
+	defer it.Close()
+
+	// Then the correct columns are extracted
+	batch, done, err := it.NextBatch(context.Background())
+	require.NoError(t, err)
+	require.True(t, done)
+	require.Equal(t, [][]string{{"John", "john@example.com"}}, batch)
+}
