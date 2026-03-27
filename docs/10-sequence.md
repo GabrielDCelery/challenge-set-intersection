@@ -1,14 +1,24 @@
 # Development Sequence
 
-How to split the project into deliverable slices and where to start. Each slice should be shippable and build on the previous. The three-layer architecture (KeyIterator → IntersectionAlgorithm → ResultWriter) provides the natural seam for sequencing — get the algorithm right first, then wire the layers together, then harden each boundary.
+How to split the project into deliverable slices and where to start. Each slice builds on the previous and should leave the codebase in a working state. The three-layer architecture (KeyIterator → IntersectionAlgorithm → ResultWriter) drives the sequencing — the entry point is built first so that every subsequent layer has real input to work against.
 
 ---
 
-## Slice 1 — Core Algorithm
+## Slice 1 — KeyIterator (CSV Connector)
 
-**What:** Implement the frequency map approach with hardcoded inputs. Build the IntersectionAlgorithm and ResultWriter layers. Compute all four counts and print them to stdout.
+**What:** Implement the CSV connector as a KeyIterator. Read a CSV file, resolve columns by name from the header row, return batches of keys as raw strings, and report ConnectorStats.
 
-**Why here:** The algorithm is the only thing that matters. Getting the total overlap formula right against the spec example before adding any I/O or config complexity reduces the risk of building a scaffold around a broken core.
+**Why here:** The KeyIterator is the entry point for all data. Building it first means the algorithm has real streamed input to work against from the start — no mocks, no hardcoded data.
+
+**Done when:** A CSV file can be streamed batch by batch. Column resolution works by name regardless of column order. Leading zeros are preserved. ConnectorStats reflects accurate row counts.
+
+---
+
+## Slice 2 — Core Algorithm
+
+**What:** Implement the frequency map approach. Feed two KeyIterators into the algorithm, build frequency maps, compute all four counts: total count per dataset, distinct count per dataset, distinct overlap, total overlap.
+
+**Why here:** The KeyIterator is proven. Now build the computation that depends on it. Validating the formula against the spec example before adding any further complexity reduces the risk of building a scaffold around a broken core.
 
 **Done when:** The spec example (A B C D D E F F vs A C C D F F F X Y → distinct overlap 4, total overlap 11) passes as a unit test. Running against `data/A_f.csv` and `data/B_f.csv` produces four counts that are manually verifiable.
 
@@ -16,69 +26,61 @@ How to split the project into deliverable slices and where to start. Each slice 
 
 ---
 
-## Slice 2 — KeyIterator and Config
+## Slice 3 — ResultWriter
 
-**What:** Implement the CSV connector as a KeyIterator. Wire the three layers together through YAML config parsed via `--config`. Column resolution by name, batch streaming, ConnectorStats.
+**What:** Implement the stdout writer. Format and output all six fields from IntersectionResult: total count per dataset, distinct count per dataset, distinct overlap, total overlap, skipped row counts from ConnectorStats, and ErrorBoundPct when non-zero.
 
-**Why here:** The algorithm is proven. Now build the connector layer and the config plumbing that wires everything together. This is the difference between a sketch and a configurable, runnable tool.
+**Why here:** The algorithm produces a result — now make it visible. The writer is thin but it is the only thing the caller ever sees. Implementing it here keeps the output contract explicit before config and wiring are added.
 
-**Done when:** `./program --config config/default.yaml` works end-to-end. Config specifies the two input files and `key_columns`. Missing `--config` flag, missing `key_columns`, or a file that does not exist all produce a hard error on startup with a non-zero exit.
-
-**Risk:** Column resolution by name (not index) must be established here — getting this wrong silently produces incorrect results with no downstream indication.
+**Done when:** All six fields appear in output with correct labels. ErrorBoundPct is omitted when zero. Skipped row counts from ConnectorStats are included per source.
 
 ---
 
-## Slice 3 — Connector Hardening
+## Slice 4 — Config and Wiring
 
-**What:** Handle edge cases at the connector boundary: leading zeros preserved, quoted fields and embedded commas parsed correctly, empty `key_columns` fields treated as soft failures and recorded in ConnectorStats, malformed rows skipped and counted, world-readable input files rejected before any rows are read.
+**What:** Replace hardcoded paths with a YAML config file parsed via `--config`. Wire the three layers together through config: connector construction, algorithm selection, writer configuration. Expand `${VAR}` environment variable references at parse time.
 
-**Why here:** The layers are wired. Now harden the point where raw source data enters the system. Corruption at the connector boundary is invisible downstream — the algorithm has no way to detect it.
+**Why here:** The three layers work independently. Now connect them through the config plumbing that makes the tool configurable and runnable as a single command.
 
-**Done when:** Unit tests for the KeyIterator cover all scenarios in `06-testing.md` — leading zeros, quoted fields, empty key fields, malformed rows, missing columns, world-readable file permissions. All pass.
-
-**Risk:** None of these failures are visible in the output — they produce quietly wrong counts. The tests are the only protection.
+**Done when:** `./program --config config/default.yaml` works end-to-end. Missing `--config`, missing `key_columns`, unset environment variable references, and invalid algorithm type all produce hard errors on startup with a non-zero exit.
 
 ---
 
-## Slice 4 — Test Suite
+## Slice 5 — Hardening and Tests
 
-**What:** Complete the test suite across all layer boundaries: startup, KeyIterator, IntersectionAlgorithm, ResultWriter, and end-to-end. Each layer tested in isolation using controlled inputs.
+**What:** Add all failure modes at each layer boundary and complete the test suite across all layers. Soft fails at the connector: empty key fields, malformed rows, fewer fields than expected — recorded in ConnectorStats, not fatal. Hard fails: world-readable input files, missing columns, file not found — rejected before any rows are read. Config file permissions checked at startup. End-to-end tests run the binary against real fixture files.
 
-**Why here:** The tool is functionally complete. Tests codify the correct behaviour at each boundary before any changes to the internals.
+**Why here:** The happy path works. Now protect each boundary against the failure modes that produce quietly wrong results or silent data loss. These failures are invisible in the output — tests are the only protection. Hardening and tests are done together because hardening without tests to prove it works isn't really done.
 
-**Done when:** All scenarios in `06-testing.md` have a passing test. CI runs the full suite on every push.
-
-**Risk:** If a bug is found here that changes the algorithm, Slice 1 output may have been wrong — better to find it now than never.
+**Done when:** All scenarios in `06-testing.md` have passing tests. World-readable input files are rejected before the first row is read. CI runs the full suite on every push.
 
 ---
 
-## Slice 5 — Large File Strategies
+## Slice 6 — Large File Strategies
 
-**What:** Implement `spill_to_disk` for datasets that exceed available RAM, and `pairwise_approximate` using HyperLogLog and MinHash for datasets where exact computation is not practical. Strategy is selected via `algorithm.caching_strategy` in config.
+**What:** Implement `spill_to_disk` for datasets that exceed available RAM, and `pairwise_approximate` using HyperLogLog and MinHash for datasets where exact computation is not practical. Strategy selected via `algorithm.caching_strategy` in config.
 
 **Why here:** Premature optimisation. The correctness of the exact in-memory algorithm must be established first. Only then is it worth adding complexity for scale.
 
-**Done when:** `spill_to_disk` produces the same result as `in_memory` on the existing fixture files. `pairwise_approximate` output includes a non-zero `ErrorBoundPct`. The sizing thresholds in D10 are validated against real memory usage.
+**Done when:** `spill_to_disk` produces the same result as `in_memory` on the existing fixture files. `pairwise_approximate` output includes a non-zero `ErrorBoundPct`. Sizing thresholds in D10 are validated against real memory usage.
 
 **Risk:** `pairwise_approximate` changes the output contract — `ErrorBoundPct` must be non-zero and the caller must be able to distinguish an estimate from an exact result.
 
 ---
 
-## Slice 6 — Packaging
+## Slice 7 — Packaging
 
-**What:** Write the README with build and run instructions. Finalise the Makefile (`build`, `test`, `docker-build`, `docker-run`). Write the Dockerfile. Set up GitHub Actions CI.
+**What:** Finalise the Makefile (`build`, `test`, `docker-build`, `docker-run`), the Dockerfile, and the README. CI is set up incrementally from Slice 1 onwards — this slice finalises it with Docker build and trivy scanning.
 
-**Why here:** Everything else is done. Documentation and packaging written last reflects the actual implementation.
+**Why here:** Packaging is incremental — the Makefile and basic CI exist from early on. This slice finalises and hardens everything so the submission is complete.
 
 **Done when:** A reviewer with only Docker installed can clone the repo, run `make docker-build && make docker-run`, and see correct output against the provided data files following only the README.
-
-**Risk:** None — this is polish, not logic.
 
 ---
 
 ## What to Defer
 
-- **REST connector:** defer until after Slice 2 — the CSV connector validates the KeyIterator interface. REST is a second implementation of the same interface.
+- **REST connector:** defer until after Slice 1 — the CSV connector validates the KeyIterator interface. REST is a second implementation of the same interface.
 - **N-way intersection (more than two datasets):** defer unless explicitly confirmed in scope — the current design is N-dataset safe but the challenge specifies two.
 - **Horizontal scaling:** out of scope — requires dedicated research and design. See `09-deployment.md`.
-- **Progress indicators / verbose mode:** defer until Slice 5 — only useful for large-file runs.
+- **Progress indicators / verbose mode:** defer until large file strategies are implemented — only useful for large-file runs.
