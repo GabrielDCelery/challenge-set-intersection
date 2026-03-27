@@ -2,6 +2,8 @@
 
 A CLI tool that compares two CSV datasets of anonymised UDPRN keys and computes four set intersection statistics: total key count per file, distinct key count per file, distinct overlap (keys appearing in both files), and total overlap (sum of `count_in_A × count_in_B` across shared keys). Built for privacy-preserving data analysis — the tool outputs only aggregate counts, never individual key values.
 
+The original challenge brief is at [`docs/challenge-brief.md`](docs/challenge-brief.md).
+
 ## Quick Start
 
 ```sh
