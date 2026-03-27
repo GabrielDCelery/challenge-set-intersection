@@ -5,6 +5,7 @@ import "context"
 type IntersectionResult interface{}
 
 type IntersectionAlgorithm interface {
+	// Compute streams both datasets in parallel and returns intersection statistics
 	Compute(ctx context.Context, datasets []KeyIterator) (IntersectionResult, error)
 }
 
