@@ -15,7 +15,10 @@ test:
 	go test ./...
 
 docker-build:
-	docker build -t set-intersection:$(GIT_SHA) -t set-intersection:latest .
+	docker build -t infosum/set-intersection:$(GIT_SHA) -t infosum/set-intersection:latest .
 
 docker-run:
-	docker run --rm -v $(shell pwd)/data:/data set-intersection:latest
+	docker run --rm \
+		-v $(shell pwd)/data:/data \
+		-v $(shell pwd)/config:/config \
+		infosum/set-intersection:latest --config /config/default.yaml

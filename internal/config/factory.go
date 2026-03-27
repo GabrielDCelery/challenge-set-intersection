@@ -40,7 +40,7 @@ func BuildAlgorithm(cfg *Config) (types.IntersectionAlgorithm, error) {
 	}
 }
 
-func BuildWrite(cfg *Config) (types.ResultWriter, error) {
+func BuildWriter(cfg *Config) (types.ResultWriter, error) {
 	switch cfg.Output.Writer {
 	case "stdout":
 		return writer.NewStdoutWriter(), nil

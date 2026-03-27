@@ -2,47 +2,61 @@ package main
 
 import (
 	"context"
+	"flag"
 	"os"
 	"time"
 
-	"github.com/GabrielDCelery/challenge-set-intersection/internal/algorithm"
-	"github.com/GabrielDCelery/challenge-set-intersection/internal/connector"
+	"github.com/GabrielDCelery/challenge-set-intersection/internal/config"
 	"github.com/GabrielDCelery/challenge-set-intersection/internal/types"
-	"github.com/GabrielDCelery/challenge-set-intersection/internal/writer"
 	"github.com/rs/zerolog"
 )
 
 func main() {
 	log := zerolog.New(os.Stderr).With().Timestamp().Logger()
 
+	configPath := flag.String("config", "", "path to config file")
+	flag.Parse()
+
+	if *configPath == "" {
+		log.Fatal().Msg("--config flag is required")
+	}
+
 	start := time.Now()
 
+	cfg, err := config.Load(*configPath)
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load config")
+	}
+
 	log.Info().
-		Str("source_a", "/data/A_f.csv").
-		Str("source_b", "/data/B_f.csv").
-		Str("key_columns", "udprn").
+		Str("config", *configPath).
+		Strs("key_columns", cfg.KeyColumns).
+		Str("algorithm", cfg.Algorithm.Type).
 		Msg("starting")
 
-	iterA, err := connector.NewCsvKeyIterator("/data/A_f.csv", []string{"udprn"}, 1000, 0, log)
-
+	connectors, err := config.BuildConnectors(cfg, log)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create iterator A")
+		log.Fatal().Err(err).Msg("failed to build connectors")
+	}
+	for _, connector := range connectors {
+		defer connector.Close()
 	}
 
-	defer iterA.Close()
-
-	iterB, err := connector.NewCsvKeyIterator("/data/B_f.csv", []string{"udprn"}, 1000, 0, log)
-
+	algo, err := config.BuildAlgorithm(cfg)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create iterator B")
+		log.Fatal().Err(err).Msg("failed to build algorithm")
 	}
 
-	defer iterB.Close()
+	w, err := config.BuildWriter(cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to build writer")
+	}
 
-	algo := algorithm.NewPairwiseExact()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Run.TimeoutSeconds)*time.Second)
+	defer cancel()
 
-	result, err := algo.Compute(context.Background(), []types.KeyIterator{iterA, iterB})
-
+	result, err := algo.Compute(ctx, connectors)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to compute intersection")
 	}
@@ -54,8 +68,6 @@ func main() {
 			Uint64("rows_skipped", stats.RowsSkipped).
 			Msg("connector finished")
 	}
-
-	w := writer.NewStdoutWriter()
 
 	if err := w.Write(result); err != nil {
 		log.Fatal().Err(err).Msg("failed to write result")

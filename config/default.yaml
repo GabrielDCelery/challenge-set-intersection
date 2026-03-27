@@ -1,12 +1,12 @@
 datasets:
   - connector: csv
     page_size: 1000
-    max_error_rate: 0.05
+    max_error_rate: 0.25
     params:
       path: /data/A_f.csv
   - connector: csv
     page_size: 1000
-    max_error_rate: 0.05
+    max_error_rate: 0.25
     params:
       path: /data/B_f.csv
 
