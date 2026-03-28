@@ -55,6 +55,7 @@ func (p *PairwiseExact) Compute(ctx context.Context, datasets []types.KeyIterato
 	connectorStats := []types.ConnectorStats{{}, {}}
 
 	for datasetIdx, dataset := range datasets {
+		datasetIdx, dataset := datasetIdx, dataset
 		g.Go(func() error {
 			freqMap, stats, err := streamDataset(ctx, dataset)
 			if err != nil {
