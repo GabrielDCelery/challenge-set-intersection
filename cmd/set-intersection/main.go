@@ -48,7 +48,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to build algorithm")
 	}
 
-	w, err := config.BuildWriter(cfg)
+	writer, err := config.BuildWriter(cfg)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to build writer")
 	}
@@ -70,7 +70,7 @@ func main() {
 			Msg("connector finished")
 	}
 
-	if err := w.Write(result); err != nil {
+	if err := writer.Write(result); err != nil {
 		log.Fatal().Err(err).Msg("failed to write result")
 	}
 
