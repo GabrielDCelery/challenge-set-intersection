@@ -21,6 +21,7 @@
 | D9  | Sequential vs parallel connector streaming? | Parallel — one goroutine per connector                       |
 | D10 | Frequency map memory for exact algorithms?  | `in_memory` or `spill_to_disk`; n/a for approximate          |
 | D11 | Long-running process control?               | `run.timeout_seconds`; resume deferred                       |
+| D14 | Where does `max_error_rate` enforcement live? | Connector — fails fast, simpler algorithm                  |
 
 **System Boundaries**
 
@@ -382,6 +383,22 @@ The `KeyIterator` interface is designed to accommodate resume in future — a `C
 - Soft failure — chosen; consistent with the handling of other malformed rows (FR6); caller is informed via `ConnectorStats`
 
 **Why:** Treating an empty key field as a soft failure is consistent with the existing error handling model. The connector is responsible for deciding what constitutes a valid row — an incomplete key is not valid, but it is not a reason to abort the entire run.
+
+---
+
+## D14: `max_error_rate` enforcement — connector vs algorithm
+
+**Decision:** The connector enforces `max_error_rate`. After each batch, `NextBatch()` computes `RowsSkipped / RowsRead` and returns an error if the threshold is exceeded. The algorithm propagates the error via context cancellation.
+
+**Alternatives considered:**
+
+- **Connector enforces (chosen)** — fails fast without a round-trip back to the algorithm; connector owns the quality of what it produces; algorithm stays simple and unaware of error-rate policy
+- **Algorithm enforces** — calls `iter.Stats()` after each `NextBatch()` and decides whether to abort; cleaner separation of concerns (policy in the orchestrator, not the data layer); more flexible (different abort strategies per algorithm type); but requires threading per-dataset thresholds into `Compute()`, changing the algorithm interface or constructor, and adds a stats check after every batch
+- **Both enforce** — redundant; creates ownership ambiguity and two policy points to keep in sync; ruled out
+
+**Why connector:** For the current scope the connector approach is simpler and correct. The practical cost of moving enforcement to the algorithm is an interface change (`Compute` or algorithm constructor must receive per-dataset thresholds) with no immediate benefit. The algorithmic flexibility gained is not needed until a concrete requirement drives it.
+
+**Known limitation:** `max_error_rate` is a policy concern embedded in a data-access layer. If future requirements introduce per-algorithm abort strategies (e.g. abort only if the average across all connectors exceeds the threshold), the check will need to move to the algorithm.
 
 ---
 
