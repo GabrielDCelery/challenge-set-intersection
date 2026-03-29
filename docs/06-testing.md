@@ -59,7 +59,7 @@ The formula itself — `m × n` per shared key, summed — is counterintuitive e
 
 The algorithm is also where concurrency is introduced. Each connector streams into its own frequency map in a separate goroutine. The maps are independent during streaming — no locking required — but the comparison phase must wait for all goroutines to complete. A race condition or premature comparison would produce non-deterministic results that are difficult to reproduce and impossible to detect from the output alone.
 
-Finally, the `max_error_rate` check is the algorithm's only feedback mechanism about data quality. If it fails to abort when the threshold is exceeded, a result computed from heavily degraded input gets written as if it were complete and reliable.
+Finally, the `max_error_rate` check in the connector is the system's only feedback mechanism about data quality. If it fails to abort when the threshold is exceeded, a result computed from heavily degraded input gets written as if it were complete and reliable.
 
 - Total overlap = `m × n` per shared key, summed — validated against the spec worked example (A B C D D E F F vs A C C D F F F X Y → 11)
 - Distinct overlap counts key types, not occurrences — `[A, A, A]` vs `[A, A]` → distinct overlap = 1, total overlap = 6

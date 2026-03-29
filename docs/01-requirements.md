@@ -11,7 +11,7 @@ The program must accept two or more datasets as input. Each dataset contains a h
 - FR3: The CSV connector implements `KeyIterator`, reads the file row by row without loading it fully into memory, and resolves the `key_columns` config value to column indices from the header row.
 - FR4: The program handles datasets where key values may appear more than once (duplicates are valid input).
 - FR5: Configuration errors (missing key column, source cannot be opened, missing config) are hard failures — the program exits with a non-zero exit code and a clear error message before processing any rows.
-- FR6: Data errors (malformed rows) are soft failures — the connector skips the row, records it in `ConnectorStats`, and continues. The algorithm checks the error rate after each batch and aborts if it exceeds the configured `max_error_rate` threshold (set per dataset in the YAML config).
+- FR6: Data errors (malformed rows) are soft failures — the connector skips the row, records it in `ConnectorStats`, and continues. The connector checks the error rate after each batch and aborts if it exceeds the configured `max_error_rate` threshold (set per dataset in the YAML config). The algorithm propagates the error via context cancellation, stopping all other goroutines cleanly.
 - FR7: Skipped row counts and error details are included in the final output so the caller is aware the results may be incomplete.
 
 ### Key Statistics

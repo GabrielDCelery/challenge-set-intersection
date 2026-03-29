@@ -23,7 +23,7 @@ type KeyIterator interface {
 ```
 
 - `NextBatch()` returns a batch of rows. Each row is a `[]string` — one element per configured `key_columns` entry, in order. Returns `done=true` on the final batch.
-- `Stats()` returns accumulated `ConnectorStats` at any point — safe to call after every batch. Used by the algorithm to enforce `max_error_rate`.
+- `Stats()` returns accumulated `ConnectorStats` at any point — safe to call after every batch.
 - `Close()` releases any held resources (file handles, connections). Safe to `defer`.
 
 **Key representation:** keys are raw strings, leading zeros preserved (D2). For composite keys, the algorithm joins the `[]string` elements with `\x00` to form a single frequency map key — the delimiter cannot appear in real data so there is no collision risk (D3).
@@ -44,7 +44,7 @@ type IntersectionAlgorithm interface {
 }
 ```
 
-Streams connectors in parallel — one goroutine per `KeyIterator`, managed internally. Cancellation propagates via shared context (D9). Checks `ConnectorStats` after each batch and aborts if `max_error_rate` is exceeded (FR6).
+Streams connectors in parallel — one goroutine per `KeyIterator`, managed internally. Cancellation propagates via shared context (D9). Each connector checks `max_error_rate` after each batch and returns an error to abort (FR6) — the algorithm cancels remaining goroutines on the first such error.
 
 **Current implementation:** `pairwise_exact` — two datasets, exact counts, frequency map held in memory.
 
@@ -107,7 +107,7 @@ The `ResultWriter` iterates `Datasets` to print per-source rows, then prints the
 
 ## ConnectorStats
 
-Accumulated per-connector statistics. Populated during iteration and readable at any point via `KeyIterator.Stats()`. Error rate = `RowsSkipped / RowsRead` — if this exceeds `max_error_rate` after a batch the algorithm aborts with a non-zero exit code and flushes stats to stderr.
+Accumulated per-connector statistics. Populated during iteration and readable at any point via `KeyIterator.Stats()`. Error rate = `RowsSkipped / RowsRead` — if this exceeds `max_error_rate` after a batch the connector returns an error, causing the algorithm to abort with a non-zero exit code and flush stats to stderr.
 
 ```go
 type RowError struct {
