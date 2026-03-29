@@ -24,11 +24,11 @@ All diagnostic output goes to stderr. Stdout carries only the final result. A cl
 - On soft failure: row number, reason, running skip rate
 - On hard failure: source identifier, failure reason — program exits after this log line
 - On cancellation (timeout or error in another goroutine): how far the connector got, partial `ConnectorStats`
+- On `max_error_rate` exceeded: which source breached the threshold, final `ConnectorStats` for all sources
 
 **Algorithm layer:**
 
 - On completion: wall-clock time for `Compute()`
-- On `max_error_rate` exceeded: which source breached the threshold, final `ConnectorStats` for all sources
 
 **Writer layer:**
 

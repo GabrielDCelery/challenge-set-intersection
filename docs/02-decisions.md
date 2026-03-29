@@ -112,7 +112,8 @@ m + n:       (1+1) + (1+2) + (2+1) + (2+3) = 2 + 3 + 3 + 5 = 13
 
 ```go
 type KeyIterator interface {
-    NextBatch() (keys [][]string, done bool, err error)
+    NextBatch(ctx context.Context) (keys [][]string, done bool, err error)
+    Stats() ConnectorStats
     Close() error
 }
 ```
@@ -223,7 +224,7 @@ run:
 
 ```go
 type IntersectionAlgorithm interface {
-    Compute(datasets []KeyIterator) (IntersectionResult, error)
+    Compute(ctx context.Context, datasets []KeyIterator) (IntersectionResult, error)
 }
 ```
 
